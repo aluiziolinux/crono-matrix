@@ -1,0 +1,26 @@
+{% if error %}<p class="inline-error">{{ error }}</p>{% elif detail %}
+<button class="back-link" type="button" onclick="this.closest('form')?.requestSubmit()" hx-get="/partials/hf-search?q={{ detail.original|urlencode }}" hx-target="#hf-results">← resultados</button>
+<div class="hf-detail-head">
+  <span class="eyebrow">REPOSITÓRIO GGUF</span>
+  <strong>{{ detail.repo_id }}</strong>
+  {% if detail.repo_id != detail.original %}<small>Conversão exata de {{ detail.original }}</small>{% endif %}
+</div>
+{% if detail.meta %}
+<div class="hf-meta">
+  <span>{{ detail.meta.architecture|upper }}</span>
+  <span>{{ '{:,}'.format(detail.meta.context_length or 0) }} ctx</span>
+  <span>{{ (detail.meta.total or 0)|params }} params</span>
+</div>
+{% endif %}
+<form class="gguf-files" hx-post="/hf/download" hx-target="#download-panel">
+  <input type="hidden" name="repo_id" value="{{ detail.repo_id }}">
+  {% for file in detail.files %}
+  <label class="gguf-row">
+    <input type="radio" name="filename" value="{{ file.name }}" required>
+    <span><strong>{{ file.label }}</strong>{% if file.parts > 1 %}<small>{{ file.parts }} partes</small>{% endif %}</span>
+    <b>{{ file.size|bytes if file.size else 'N/D' }}</b>
+  </label>
+  {% else %}<p class="empty-state">Nenhuma conversão GGUF exata encontrada.</p>{% endfor %}
+  {% if detail.files %}<button class="download-button" type="submit">↓ BAIXAR SELECIONADO</button>{% endif %}
+</form>
+{% endif %}

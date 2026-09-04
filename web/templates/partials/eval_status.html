@@ -1,0 +1,10 @@
+<div id="eval-status">
+  {% include "partials/eval_status_bar.html" %}
+</div>
+
+{% if eval_state.state in ['running', 'stopping', 'stopped', 'done', 'error', 'skipped'] %}
+  <div class="log-stream eval-log-stream" id="eval-log-stream"
+       role="log" aria-live="polite">
+    <div class="log-line muted">// aguardando saida da suite de avaliacao</div>
+  </div>
+{% endif %}

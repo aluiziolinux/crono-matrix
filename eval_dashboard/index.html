@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Alpha Eval Observatory</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <link rel="stylesheet" href="assets/print.css" media="print">
+</head>
+<body>
+  <a class="skip" href="#main">Ir para o conteúdo</a>
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Alpha-Agent Evaluation Suite</p>
+      <h1>Observatório de modelos</h1>
+      <p class="lede">Compare capacidade, estabilidade, especialidades e custo de execução sem confundir tamanho com inteligência.</p>
+    </div>
+    <div class="mode-switch" role="group" aria-label="Nível de explicação">
+      <button class="active" data-mode="simple">Resumo simples</button>
+      <button data-mode="academic">Análise acadêmica</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="method-note" aria-label="Nota metodológica">
+      <strong>Como ler:</strong>
+      <span class="simple-only">verde significa que o modelo resolveu; amarelo pede atenção; vermelho indica fraqueza.</span>
+      <span class="academic-only">resultados descritivos de itens heterogêneos; intervalos de Wilson não implicam independência entre testes.</span>
+    </section>
+
+    <section class="controls panel">
+      <label>Modelo principal<select id="model-a"></select></label>
+      <label>Comparar com<select id="model-b"></select></label>
+      <label>Especialidade<select id="axis-filter"><option value="">Todas</option></select></label>
+      <label>Buscar teste<input id="search" type="search" placeholder="LIF, C99, Node, OOM..."></label>
+    </section>
+
+    <section id="hero" class="hero-grid" aria-live="polite"></section>
+
+    <section class="panel verdict" id="verdict"></section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div><p class="eyebrow">Panorama</p><h2>Quem entrega mais?</h2></div>
+        <p class="academic-only">Ordenação por score médio; cobertura permanece visível para evitar comparação indevida entre gerações.</p>
+      </div>
+      <div id="leaderboard" class="table-wrap"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head"><div><p class="eyebrow">Resultado</p><h2>Acertos, falhas e lacunas</h2></div></div>
+      <div id="outcome-chart" class="chart-list"></div>
+    </section>
+
+    <section class="panel full-bleed">
+      <div class="section-head">
+        <div><p class="eyebrow">Especialidades</p><h2>Mapa de competências</h2></div>
+        <p class="simple-only">Quanto mais cheio e verde, melhor naquela área.</p>
+        <p class="academic-only">Média por eixo; células hachuradas indicam ausência de dados, não reprovação.</p>
+      </div>
+      <div id="heatmap" class="heatmap-wrap"></div>
+    </section>
+
+    <section class="split">
+      <article class="panel">
+        <div class="section-head"><div><p class="eyebrow">Duelo direto</p><h2>Onde cada modelo vence</h2></div></div>
+        <div id="pairwise"></div>
+      </article>
+      <article class="panel">
+        <div class="section-head"><div><p class="eyebrow">Tempo</p><h2>Latência ponta a ponta</h2></div></div>
+        <div id="latency"></div>
+      </article>
+    </section>
+
+    <section class="panel academic-only">
+      <div class="section-head"><div><p class="eyebrow">Proveniência</p><h2>Qualidade dos dados</h2></div></div>
+      <div id="provenance"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div><p class="eyebrow">Evidências</p><h2>Explorador de testes</h2></div>
+        <span id="result-count" aria-live="polite"></span>
+      </div>
+      <div id="test-explorer" class="table-wrap"></div>
+    </section>
+
+    <section class="panel methodology academic-only">
+      <h2>Metodologia e limites</h2>
+      <div class="method-grid">
+        <div><strong>Unidade</strong><p>Cada teste avalia uma capacidade operacional. O score micro dá peso igual a cada item; eixos com mais itens pesam mais.</p></div>
+        <div><strong>Incerteza</strong><p>Runs v4 podem conter repetições e seeds. Checkpoints legados representam uma observação por item e não sustentam inferência causal.</p></div>
+        <div><strong>Avaliadores</strong><p>Há exact match, regex, compilação, execução e LLM judge. O tipo de avaliador deve ser considerado ao interpretar diferenças pequenas.</p></div>
+        <div><strong>Latência</strong><p>Inclui geração, retries, ferramentas, compilação e eventualmente julgamento. Não é um benchmark puro de tokens por segundo.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>Gerado localmente, sem CDN, telemetria ou envio de dados.</footer>
+  <script src="data/dashboard-data.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

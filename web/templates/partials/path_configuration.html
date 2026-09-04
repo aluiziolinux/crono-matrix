@@ -1,0 +1,12 @@
+<div class="path-control" id="path-configuration"{% if path_oob %} hx-swap-oob="outerHTML"{% endif %}>
+  <label for="llama-cpp-dir">Pasta do llama.cpp</label>
+  <input id="llama-cpp-dir" name="llama_cpp_dir" value="{{ state.llama_cpp_dir }}"
+         placeholder="/caminho/para/llama.cpp" autocomplete="off">
+  <label for="models-dir">Pasta dos modelos</label>
+  <input id="models-dir" name="models_dir" value="{{ state.models_dir }}"
+         placeholder="/caminho/para/modelos" autocomplete="off">
+  <button type="button" class="secondary path-apply"
+          hx-post="/partials/configure-paths" hx-include="#path-configuration"
+          hx-target="#action-sink" hx-indicator="#models-loading"
+          hx-disabled-elt="this">APLICAR CAMINHOS</button>
+</div>

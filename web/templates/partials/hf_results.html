@@ -1,0 +1,7 @@
+{% if error %}<p class="inline-error">{{ error }}</p>{% endif %}
+{% for item in results %}
+<button type="button" class="hf-row" hx-get="/partials/hf-detail?repo_id={{ item.id|urlencode }}" hx-target="#hf-results">
+  <span><strong>{{ item.id }}</strong><small>{{ item.pipeline_tag or 'model' }}</small></span>
+  <span class="hf-metrics">↓ {{ item.downloads or 0 }}<br>♥ {{ item.likes or 0 }}</span>
+</button>
+{% else %}{% if not error %}<p class="empty-state">Nenhum resultado.</p>{% endif %}{% endfor %}

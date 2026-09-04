@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Crono // Alpha Eval{% endblock %}
+{% block body %}
+<div class="eval-shell">
+  <header class="eval-header">
+    <div class="brand-block">
+      <span class="brand-mark" aria-hidden="true">C://</span>
+      <div>
+        <strong>CRONO MATRIX</strong>
+        <small>ALPHA EVAL OBSERVATORY</small>
+      </div>
+    </div>
+    <nav class="rail-nav">
+      <a href="/" class="rail-link">LANÇADOR</a>
+      <a href="/eval" class="rail-link active">AVALIAÇÃO</a>
+    </nav>
+    <div class="mode-switch" role="group" aria-label="Nível de explicação">
+      <button class="active" data-eval-mode="simple">Resumo</button>
+      <button data-eval-mode="academic">Detalhado</button>
+    </div>
+  </header>
+
+  <main id="eval-main">
+    <section class="method-note" aria-label="Nota metodológica">
+      <strong>Como ler:</strong>
+      <span class="simple-only">verde significa que o modelo resolveu; amarelo pede atenção; vermelho indica fraqueza.</span>
+      <span class="academic-only">resultados descritivos de itens heterogêneos; intervalos de Wilson não implicam independência entre testes.</span>
+    </section>
+
+    {% include "partials/eval_runner.html" %}
+
+    <div id="eval-controls-wrapper" style="display:none;">
+      <section class="eval-controls eval-panel">
+        <label>Modelo principal<select id="model-a"></select></label>
+        <label>Comparar com<select id="model-b"></select></label>
+        <label>Especialidade<select id="axis-filter"><option value="">Todas</option></select></label>
+        <label>Buscar teste<input id="eval-search" type="search" placeholder="LIF, C99, Node, OOM..."></label>
+        <a class="academic-export" href="/eval/export">EXPORTAR PACOTE ACADÊMICO (.ZIP)</a>
+        <button class="delete-run" type="button" data-delete-run>EXCLUIR SELECIONADO</button>
+      </section>
+    </div>
+
+    <div id="eval-dashboard-content">
+      {% include "partials/eval_dashboard.html" %}
+    </div>
+
+    <section class="eval-panel methodology academic-only">
+      <h2>Metodologia e limites</h2>
+      <div class="method-grid">
+        <div><strong>Unidade</strong><p>Cada teste avalia uma capacidade operacional. O score micro dá peso igual a cada item; eixos com mais itens pesam mais.</p></div>
+        <div><strong>Incerteza</strong><p>Runs v4 podem conter repetições e seeds. Checkpoints legados representam uma observação por item e não sustentam inferência causal.</p></div>
+        <div><strong>Avaliadores</strong><p>Há exact match, regex, compilação, execução e LLM judge. O tipo de avaliador deve ser considerado ao interpretar diferenças pequenas.</p></div>
+        <div><strong>Latência</strong><p>Inclui geração, retries, ferramentas, compilação e eventualmente julgamento. Não é um benchmark puro de tokens por segundo.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>Gerado localmente, sem CDN, telemetria ou envio de dados.</footer>
+</div>
+<script src="{{ url_for('static', path='eval.js') }}"></script>
+{% endblock %}

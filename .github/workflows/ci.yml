@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependências Python
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-web.txt -r requirements-gui.txt
+      - name: Compilar monitor C99
+        run: cc -O3 -std=c99 -Wall -Wextra -pthread native/crono_memory_guard.c -o /tmp/crono-memory-guard
+      - name: Testes
+        run: |
+          python -m compileall -q launch_model_core.py launch_model_ctk.py launch_model_gui.py launch_model_web.py web tests scripts
+          python -m unittest discover -s tests -v
+      - name: Higiene da distribuição
+        run: python scripts/release_check.py
+
+  llama-patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar patch contra revisão fixada
+        run: ./scripts/bootstrap_llama_cpp.sh --prepare-only

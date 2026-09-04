@@ -1,0 +1,82 @@
+{% macro radar_row(item) -%}
+<button type="button" class="hf-radar-row {{ 'unread' if item.unread else '' }}"
+        title="Abrir {{ item.id }}"
+        aria-label="Abrir detalhes de {{ item.id }}"
+        hx-get="/partials/hf-detail?repo_id={{ item.id|urlencode }}" hx-target="#hf-results">
+  <span class="hf-radar-signal {{ 'hot' if item.unread else '' }}" aria-hidden="true">{{ '◆' if item.unread else '◇' }}</span>
+  <span class="hf-radar-copy">
+    <strong class="hf-radar-title" title="{{ item.id }}">{{ item.id }}</strong>
+    <small class="hf-radar-meta">
+      <b>{{ 'OFICIAL' if item.official else ('VERIFICADO' if item.trusted else item.family|upper) }}</b>
+      {% for capability in item.capabilities[:3] %}<i>{{ capability }}</i>{% endfor %}
+    </small>
+  </span>
+  {% if item.unread %}<span class="hf-radar-event">{{ item.event }}</span>{% endif %}
+</button>
+{%- endmacro %}
+
+<div class="hf-radar-content" data-hf-radar-unread="{{ radar.unread_count or 0 }}">
+  <header class="hf-radar-head">
+    <div class="hf-radar-heading">
+      <span class="hf-radar-mark" aria-hidden="true">◈</span>
+      <div>
+        <strong>RADAR DE LANÇAMENTOS</strong>
+        <small>{% if radar.last_refresh %}sincronizado {{ radar.last_refresh[:16]|replace('T', ' ') }} UTC{% else %}aguardando primeira sincronização{% endif %}</small>
+      </div>
+    </div>
+    <div class="hf-radar-actions">
+      {% if radar.unread_count %}
+      <span class="hf-radar-badge hot">{{ radar.unread_count }} NOVO{{ 'S' if radar.unread_count != 1 else '' }}</span>
+      {% else %}
+      <span class="hf-radar-badge">OK</span>
+      {% endif %}
+      <button type="button" class="icon-button" title="Atualizar radar agora"
+              hx-get="/partials/hf-radar?force=true" hx-target="#hf-radar"
+              hx-swap="innerHTML" hx-disabled-elt="this">↻</button>
+    </div>
+  </header>
+
+  {% if not radar.enabled %}
+  <p class="hf-radar-note">Radar pausado. Reative-o em “preferências” quando quiser receber novidades nesta interface.</p>
+  {% elif not radar.initialized %}
+  <p class="hf-radar-note">Montando a linha de base local dos modelos observados…</p>
+  {% elif radar["items"] %}
+  <div class="hf-radar-list" aria-label="Lançamentos prioritários">
+    {% for item in radar["items"][:4] %}{{ radar_row(item) }}{% endfor %}
+  </div>
+  {% if radar["items"]|length > 4 %}
+  <details class="hf-radar-more">
+    <summary>VER MAIS {{ radar["items"]|length - 4 }} MODELOS</summary>
+    <div class="hf-radar-list extended">
+      {% for item in radar["items"][4:] %}{{ radar_row(item) }}{% endfor %}
+    </div>
+  </details>
+  {% endif %}
+  {% else %}
+  <p class="hf-radar-note">Nenhum lançamento compatível nesta leitura. Você pode ampliar as famílias observadas nas preferências.</p>
+  {% endif %}
+
+  <footer class="hf-radar-footer">
+    {% if radar.unread_count %}
+    <button type="button" class="text-button" hx-post="/hf/radar/read"
+            hx-target="#hf-radar" hx-swap="innerHTML">MARCAR COMO VISTO</button>
+    {% endif %}
+    <details class="hf-radar-settings">
+      <summary>PREFERÊNCIAS DO RADAR</summary>
+      <form hx-post="/hf/radar/preferences" hx-target="#hf-radar" hx-swap="innerHTML">
+        <label>
+          Famílias observadas
+          <input name="watchlist" value="{{ radar.watchlist }}" maxlength="512"
+                 placeholder="qwen, gemma, glm, deepseek, mistral">
+        </label>
+        <label class="hf-radar-toggle">
+          <input name="enabled" type="checkbox" value="y" {% if radar.enabled %}checked{% endif %}>
+          Consultar lançamentos e atualizações enquanto o Crono Matrix estiver aberto
+        </label>
+        <button type="submit" class="text-button">SALVAR</button>
+      </form>
+    </details>
+  </footer>
+
+  {% if radar.error %}<p class="hf-radar-error">Leitura parcial: {{ radar.error }}</p>{% endif %}
+</div>

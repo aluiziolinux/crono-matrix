@@ -1,0 +1,139 @@
+<form class="eval-runner" id="eval-runner-form" hx-post="/eval/start"
+      hx-target="#eval-runner-status" hx-swap="innerHTML">
+  <div class="section-head">
+    <div>
+      <p class="eyebrow">Executar avaliação</p>
+      <h2>Suite de 23 eixos</h2>
+    </div>
+  </div>
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .6rem;">
+    <label>
+      Eixos (ex: 1,2,3)
+      <input name="axes" type="text" placeholder="todos" value="{{ eval_state.config.axes_filter }}">
+    </label>
+    <label>
+      Repetições
+      <input name="repeats" type="number" min="1" max="100" value="{{ eval_state.config.repeats or 1 }}">
+    </label>
+    <label>
+      Seed
+      <input name="seed" type="number" value="{{ eval_state.config.seed or 0 }}">
+    </label>
+    <label>
+      Escala
+      <select name="scale">
+        <option value="auto" {% if eval_state.config.scale == 'auto' %}selected{% endif %}>Auto</option>
+        <option value="small" {% if eval_state.config.scale == 'small' %}selected{% endif %}>Pequeno (<20B)</option>
+        <option value="medium" {% if eval_state.config.scale == 'medium' %}selected{% endif %}>Médio (20-70B)</option>
+        <option value="large" {% if eval_state.config.scale == 'large' %}selected{% endif %}>Grande (70-200B)</option>
+        <option value="xlarge" {% if eval_state.config.scale == 'xlarge' %}selected{% endif %}>Extra-grande (200B+)</option>
+      </select>
+    </label>
+    <label>
+      Token Qwen (/think)
+      <select name="mode">
+        <option value="auto" {% if eval_state.config.mode == 'auto' %}selected{% endif %}>Auto</option>
+        <option value="think" {% if eval_state.config.mode == 'think' %}selected{% endif %}>/think</option>
+        <option value="nothink" {% if eval_state.config.mode == 'nothink' %}selected{% endif %}>/nothink</option>
+      </select>
+    </label>
+    <label>
+      Esforço reasoning
+      <select name="reasoning_effort">
+        <option value="default" {% if eval_state.config.reasoning_effort == 'default' %}selected{% endif %}>Padrão servidor</option>
+        <option value="off" {% if eval_state.config.reasoning_effort == 'off' %}selected{% endif %}>Desligado</option>
+        <option value="low" {% if eval_state.config.reasoning_effort == 'low' %}selected{% endif %}>Baixo (512)</option>
+        <option value="medium" {% if eval_state.config.reasoning_effort == 'medium' %}selected{% endif %}>Médio (2.048)</option>
+        <option value="high" {% if eval_state.config.reasoning_effort == 'high' %}selected{% endif %}>Alto (8.192)</option>
+        <option value="max" {% if eval_state.config.reasoning_effort == 'max' %}selected{% endif %}>Máximo</option>
+      </select>
+    </label>
+    <label>
+      Budget thinking
+      <input name="reasoning_budget" type="text" inputmode="numeric" placeholder="auto" value="{{ eval_state.config.reasoning_budget or 'auto' }}">
+    </label>
+    <label>
+      URL da API
+      <input name="eval_url" type="text" value="{{ eval_state.config.api_url or 'http://127.0.0.1:8080/v1/chat/completions' }}">
+    </label>
+  </div>
+  <p class="muted" style="margin:.55rem 0 0; font-size:.75rem;">
+    <strong>Esforço</strong> usa a API do llama.cpp; <strong>/think</strong> é apenas um teste de compatibilidade de template Qwen.
+    Ao selecionar esforço diferente de “Padrão servidor”, mantenha o token Qwen em <strong>Auto</strong>.
+    Budget <code>auto</code> usa 512/2.048/8.192 pelo esforço; <code>-1</code> delega o limite ao servidor.
+  </p>
+  <details style="margin-top:.65rem; border:1px solid var(--line); border-radius:8px; padding:.55rem .65rem;">
+    <summary style="cursor:pointer; font-family:var(--mono); font-size:.75rem; color:var(--phosphor);">CONFIGURAÇÃO REPRODUZÍVEL DE INFERÊNCIA</summary>
+    <p class="muted" style="margin:.55rem 0; font-size:.75rem;">
+      “Servidor atual” não sobrescreve os parâmetros carregados no llama-server — mede uso real. “Fixo” envia o mesmo sampling em toda chamada candidata, para comparar modelos. Testes estritamente determinísticos ainda podem fixar temperatura zero por desenho.
+    </p>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .6rem;">
+      <label>
+        Perfil sampling
+        <select name="sampling">
+          <option value="server" {% if eval_state.config.sampling == 'server' %}selected{% endif %}>Servidor atual</option>
+          <option value="fixed" {% if eval_state.config.sampling == 'fixed' %}selected{% endif %}>Fixo / comparável</option>
+        </select>
+      </label>
+      <label>
+        Temperatura
+        <input name="temperature" type="number" min="0" max="5" step="0.01" value="{{ eval_state.config.temperature }}">
+      </label>
+      <label>
+        Top K
+        <input name="top_k" type="number" min="0" max="100000" step="1" value="{{ eval_state.config.top_k }}">
+      </label>
+      <label>
+        Top P
+        <input name="top_p" type="number" min="0" max="1" step="0.01" value="{{ eval_state.config.top_p }}">
+      </label>
+      <label>
+        Min P
+        <input name="min_p" type="number" min="0" max="1" step="0.01" value="{{ eval_state.config.min_p }}">
+      </label>
+      <label>
+        Repeat penalty
+        <input name="repeat_penalty" type="number" min="0" max="10" step="0.01" value="{{ eval_state.config.repeat_penalty }}">
+      </label>
+      <label>
+        Máx. saída (tokens)
+        <input name="max_tokens" type="number" min="1" max="262144" step="1" value="{{ eval_state.config.max_tokens }}">
+      </label>
+      <label>
+        Timeout base (s)
+        <input name="timeout" type="number" min="1" max="86400" step="1" value="{{ eval_state.config.timeout }}">
+      </label>
+      <label>
+        Contexto longo (escala)
+        <input name="xctx_scale" type="number" min="0.05" max="10" step="0.05" value="{{ eval_state.config.xctx_scale }}">
+      </label>
+      <label>
+        SO (Eixo 8)
+        <select name="os_filter">
+          <option value="all" {% if eval_state.config.os_filter == 'all' %}selected{% endif %}>Linux + Windows</option>
+          <option value="linux" {% if eval_state.config.os_filter == 'linux' %}selected{% endif %}>Linux</option>
+          <option value="win" {% if eval_state.config.os_filter == 'win' %}selected{% endif %}>Windows</option>
+        </select>
+      </label>
+      <label>
+        URL do juiz (opcional)
+        <input name="judge_url" type="text" placeholder="mesma API" value="{{ eval_state.config.judge_url }}">
+      </label>
+      <label>
+        Modelo do juiz (opcional)
+        <input name="judge_model" type="text" placeholder="modelo do endpoint" value="{{ eval_state.config.judge_model }}">
+      </label>
+    </div>
+  </details>
+  <div style="display:flex; gap: .5rem; margin-top: .6rem;">
+    <button type="submit"
+            style="padding:.45rem 1.2rem;border:1px solid var(--line-hot);background:var(--line);color:var(--phosphor);border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:.72rem;font-weight:700;"
+            {% if eval_state.state == 'running' %}disabled{% endif %}>
+      ▶ INICIAR AVALIAÇÃO
+    </button>
+  </div>
+</form>
+
+<div id="eval-runner-status">
+  {% include "partials/eval_status.html" %}
+</div>

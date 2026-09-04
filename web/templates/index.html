@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="app-shell" hx-ext="sse" sse-connect="/events">
+  <header class="command-rail">
+    <div class="brand-block">
+      <span class="brand-mark" aria-hidden="true">C://</span>
+      <div>
+        <strong>CRONO MATRIX</strong>
+        <small>LLAMA SERVER CONTROL PLANE</small>
+      </div>
+    </div>
+    <div class="rail-model">
+      <span class="eyebrow">MODELO ATIVO</span>
+      <strong id="rail-model-name">{{ model.name if model else 'NENHUM MODELO' }}</strong>
+    </div>
+    <div class="rail-pulse">
+      <span class="pulse-dot {{ 'online' if process.running else '' }}"></span>
+      <span>{{ process.state|upper }}</span>
+    </div>
+    <nav class="rail-nav">
+      <a href="/" class="rail-link active">LANÇADOR</a>
+      <a href="/eval" class="rail-link">AVALIAÇÃO</a>
+      <button type="button" class="rail-link rail-stop"
+              hx-post="/launcher/stop" hx-target="#action-sink"
+              hx-confirm="Encerrar o launcher e todos os processos iniciados por ele?">
+        ENCERRAR LAUNCHER
+      </button>
+    </nav>
+  </header>
+
+  <main id="workspace" class="workspace">
+    <aside class="left-stack">
+      <section class="pane models-pane">
+        <header class="pane-head">
+          <div><span class="index">01</span><h2>Modelos locais</h2></div>
+          <div class="pane-head-actions">
+            <button class="icon-button" type="button" title="Aplicar caminhos e atualizar modelos"
+                    hx-post="/partials/configure-paths" hx-include="#path-configuration"
+                    hx-target="#action-sink" hx-indicator="#models-loading"
+                    hx-disabled-elt="this">↻</button>
+            <button class="icon-button" type="button" title="Verificar origem e atualizações dos GGUF"
+                    hx-post="/models/verify-updates" hx-target="#models-panel"
+                    hx-indicator="#models-loading" hx-disabled-elt="this">⇄</button>
+          </div>
+        </header>
+        {% include "partials/path_configuration.html" %}
+        <input class="filter-input" type="search" placeholder="filtrar modelos..."
+               data-model-filter aria-label="Filtrar modelos locais">
+        <span id="models-loading" class="htmx-indicator loading-line">SCANNING...</span>
+        <div id="models-panel">
+          {% include "partials/models.html" %}
+        </div>
+      </section>
+
+      <section class="pane hf-pane">
+        <header class="pane-head">
+          <div><span class="index">02</span><h2>Hugging Face</h2></div>
+          <span class="status-chip">GGUF</span>
+        </header>
+        <div id="hf-radar" class="hf-radar"
+             hx-get="/partials/hf-radar" hx-trigger="load, every 15m"
+             hx-swap="innerHTML">
+          <p class="hf-radar-note">// iniciando radar de lançamentos…</p>
+        </div>
+        <form class="hf-search" hx-get="/partials/hf-search" hx-target="#hf-results"
+              hx-indicator="#hf-loading">
+          <input name="q" type="search" placeholder="modelo, URL ou user/repo"
+                 hx-get="/partials/hf-search" hx-trigger="input changed delay:600ms"
+                 hx-target="#hf-results" hx-include="this">
+          <button type="submit">BUSCAR</button>
+        </form>
+        <span id="hf-loading" class="htmx-indicator loading-line">QUERYING HUB...</span>
+        <div id="hf-results" class="hf-results">
+          <p class="empty-state">Busque um modelo para localizar conversões GGUF exatas.</p>
+        </div>
+      </section>
+    </aside>
+
+    <section class="center-stack">
+      <section class="pane model-focus" id="model-detail">
+        {% include "partials/model_detail.html" %}
+      </section>
+
+      <form id="params-form" class="pane parameter-pane">
+        <header class="pane-head sticky-head">
+          <div><span class="index">03</span><h2>Parâmetros de inferência</h2></div>
+          <span class="status-chip recommended">AUTO-TUNED</span>
+        </header>
+        <div id="parameters-panel">
+          {% include "partials/parameters.html" %}
+        </div>
+        <div class="launch-actions">
+          <button type="button" class="secondary"
+                  hx-post="/partials/preview" hx-include="closest form"
+                  hx-target="#command-panel">PREVIEW CMD</button>
+          <button type="button" class="launch-button"
+                  hx-post="/server/start" hx-include="closest form"
+                  hx-target="#action-sink" hx-disabled-elt="this">
+            <span>▶</span> INICIAR SERVIDOR
+          </button>
+        </div>
+      </form>
+
+      <section class="pane command-pane">
+        <header class="pane-head compact">
+          <div><span class="index">04</span><h2>Comando</h2></div>
+        </header>
+        <div id="command-panel">
+          {% include "partials/command.html" with context %}
+        </div>
+      </section>
+    </section>
+
+    <aside class="right-stack">
+      <section class="pane telemetry-pane">
+        <header class="pane-head">
+          <div><span class="index">05</span><h2>Telemetria</h2></div>
+          <button class="icon-button" type="button" hx-post="/partials/hardware"
+                  hx-target="#hardware-panel">↻</button>
+        </header>
+        <div id="hardware-panel">
+          {% include "partials/hardware.html" %}
+        </div>
+      </section>
+
+      <section class="pane server-pane">
+        <header class="pane-head">
+          <div><span class="index">06</span><h2>Processo</h2></div>
+        </header>
+        <div id="server-panel" sse-swap="server">
+          {% include "partials/server.html" %}
+        </div>
+      </section>
+
+      <section class="pane download-pane">
+        <header class="pane-head compact">
+          <div><span class="index">07</span><h2>Transferência</h2></div>
+        </header>
+        <div id="download-panel">
+          {% include "partials/download.html" %}
+        </div>
+      </section>
+    </aside>
+
+    <section class="pane log-dock">
+      <header class="pane-head compact">
+        <div><span class="index">09</span><h2>Fluxo do servidor</h2></div>
+        <div class="log-tools">
+          <button type="button" class="text-button" data-log-pause>PAUSAR</button>
+          <button type="button" class="text-button" data-log-clear>LIMPAR VISÃO</button>
+        </div>
+      </header>
+      <div id="log-stream" class="log-stream" sse-swap="log" hx-swap="beforeend"
+           role="log" aria-live="polite">
+        <div class="log-line muted">// aguardando fluxo do llama-server</div>
+      </div>
+    </section>
+  </main>
+
+  <div id="notice-region" class="notice-region" aria-live="polite"></div>
+  <div id="action-sink" hidden></div>
+</div>
+{% endblock %}

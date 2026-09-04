@@ -1,0 +1,366 @@
+{% set v = parameters["values"] %}
+{% if not model %}
+<p class="empty-state large">Os controles serão liberados após a leitura dos metadados GGUF.</p>
+{% else %}
+{% if parameters.autotune.status == 'hit' %}
+<div class="notice success">Autotune medido aplicado para este modelo, build, hardware e workload.</div>
+{% endif %}
+<div class="parameter-grid">
+  <fieldset>
+    <legend>MEMÓRIA // CONTEXTO</legend>
+    <label>Contexto alvo <input name="ctx" type="number" min="1" max="{{ model.ctx_max }}" value="{{ v.ctx }}"
+                                  hx-post="/partials/recalculate-memory" hx-trigger="change delay:250ms" hx-vals='{"recalculate_field":"ctx"}'
+                                  hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this"><small class="field-hint">O limite nativo é {{ '{:,}'.format(model.ctx_max) }}. {% if v.fit == 'y' and v.n_cpu_moe|int > 0 %}Este modelo MoE usa um plano antecipado: a janela é fixada neste valor e experts são movidos para a CPU; o comando executa com --fit off para impedir redução silenciosa.{% elif v.fit == 'y' %}Sem um plano explícito, o Fit nativo pode reduzir a janela até o piso "Fit contexto" para manter mais pesos na GPU.{% else %}Com Fit desligado, este valor é enviado exatamente ao servidor.{% endif %} O valor realmente carregado aparece em CONFIGURAÇÃO EFETIVA /PROPS{% if model.swa_layers %}. Layout: {{ model.swa_layers }} camadas SWA de {{ model.sliding_window }} tokens, {{ model.global_layers }} globais e {{ model.moe_layers }} MoE{% elif model.layer_layout_valid %}. Layout: {{ model.attention_layers }} camadas KV, {{ model.recurrent_layers }} recorrentes e {{ model.moe_layers }} MoE{% endif %}.</small></label>
+    <label>GPU layers <input name="ngl" value="{{ 'auto' if v.fit == 'y' else v.ngl }}" {{ 'readonly' if v.fit == 'y' else '' }}><small class="field-hint">{% if v.fit == 'y' %}Fit ativo: o comando envia <code>--n-gpu-layers auto</code>; {{ v.ngl }}/{{ model.layers }} é somente a estimativa do planejador. Para fixar camadas, desligue o Fit.{% else %}Valor enviado diretamente ao llama-server.{% endif %}</small></label>
+    <label>Cache K
+      <select name="cache_k" hx-post="/partials/recalculate-memory" hx-trigger="change"
+              hx-vals='{"recalculate_field":"cache_k"}' hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this">{% for x in ['f16','bf16','q8_0','q5_1','q5_0','q4_1','q4_0','iq4_nl','f32'] %}<option {{ 'selected' if v.cache_k == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Cache V
+      <select name="cache_v" hx-post="/partials/recalculate-memory" hx-trigger="change"
+              hx-vals='{"recalculate_field":"cache_v"}' hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this">{% for x in ['f16','bf16','q8_0','q5_1','q5_0','q4_1','q4_0','iq4_nl','f32'] %}<option {{ 'selected' if v.cache_v == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Flash attention
+      <select name="flash">{% for x in ['auto','y','n'] %}<option value="{{ x }}" {{ 'selected' if v.flash == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Parallel slots <input name="parallel" type="number" min="1" value="{{ v.parallel }}"
+                                  hx-post="/partials/recalculate-memory" hx-trigger="change delay:250ms" hx-vals='{"recalculate_field":"parallel"}'
+                                  hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this"></label>
+    <label>KV offload
+      <select name="kv_offload" hx-post="/partials/recalculate-memory" hx-trigger="change"
+              hx-vals='{"recalculate_field":"kv_offload"}' hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this"><option value="y" {{ 'selected' if v.kv_offload == 'y' }}>GPU</option><option value="n" {{ 'selected' if v.kv_offload == 'n' }}>CPU</option></select>
+    </label>
+    <label>KV unified
+      <select name="kv_unified"><option value="n" {{ 'selected' if v.kv_unified == 'n' }}>off</option><option value="y" {{ 'selected' if v.kv_unified == 'y' }}>on</option></select>
+    </label>
+    <label>Load mode
+      <select name="load_mode">{% for x in ['mmap','mmap+mlock','mlock','none','dio'] %}<option {{ 'selected' if v.load_mode == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Tensor read lazy
+      <select name="tensor_read_lazy">{% for x in ['auto','on','off'] %}<option {{ 'selected' if v.tensor_read_lazy == x }}>{{ x }}</option>{% endfor %}</select>
+      <small class="field-hint">Recurso novo do upstream. Auto lê sob demanda somente tensores acima de 4 GiB; on exige mmap e pode trocar RAM por I/O. Não acelera o Qwen 35B no perfil load-mode none.</small>
+    </label>
+    <label>Cont batching
+      <select name="cont_batching"><option value="y" {{ 'selected' if v.cont_batching == 'y' }}>on</option><option value="n" {{ 'selected' if v.cont_batching == 'n' }}>off</option></select>
+    </label>
+    <label>Cache prompt
+      <select name="cache_prompt"><option value="y" {{ 'selected' if v.cache_prompt == 'y' }}>on</option><option value="n" {{ 'selected' if v.cache_prompt == 'n' }}>off</option></select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>GPU // OFFLOAD</legend>
+    <label>Split mode
+      <select name="split_mode">{% for x in ['layer','row','tensor'] %}<option {{ 'selected' if v.split_mode == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Device <input name="device" value="{{ v.device }}"></label>
+    <label>Poll (ms) <input name="poll" type="number" min="1" value="{{ v.poll }}"></label>
+    <label>Repack
+      <select name="repack"><option value="y" {{ 'selected' if v.repack == 'y' }}>on</option><option value="n" {{ 'selected' if v.repack == 'n' }}>off</option></select>
+    </label>
+    <label>No host buffer
+      <select name="no_host"><option value="n" {{ 'selected' if v.no_host == 'n' }}>off</option><option value="y" {{ 'selected' if v.no_host == 'y' }}>on</option></select>
+    </label>
+    <label>Backend sampling
+      <select name="backend_sampling">
+        <option value="y" {{ 'selected' if v.backend_sampling == 'y' }}>CUDA auto/on</option>
+        <option value="auto" {{ 'selected' if v.backend_sampling == 'auto' }}>auto</option>
+        <option value="n" {{ 'selected' if v.backend_sampling == 'n' }}>off</option>
+      </select>
+      <small class="field-hint">Usa o backend acelerado para amostragem quando disponível.</small>
+    </label>
+    <label>NUMA
+      <select name="numa">{% for x in ['none','distribute','isolate'] %}<option {{ 'selected' if v.numa == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>SWA full
+      <select name="swa_full" hx-post="/partials/recalculate-memory" hx-trigger="change"
+              hx-vals='{"recalculate_field":"swa_full"}' hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this"><option value="n" {{ 'selected' if v.swa_full == 'n' }}>off</option><option value="y" {{ 'selected' if v.swa_full == 'y' }}>on</option></select>
+    </label>
+    <label>Cache reuse <input name="cache_reuse" type="number" min="0" value="{{ v.cache_reuse }}"></label>
+    <label>Cache idle slots
+      <select name="cache_idle_slots"><option value="y" {{ 'selected' if v.cache_idle_slots == 'y' }}>on</option><option value="n" {{ 'selected' if v.cache_idle_slots == 'n' }}>off</option></select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>CPU // BATCH</legend>
+    <label>Threads <input name="threads" type="number" min="1" value="{{ v.threads }}"></label>
+    <label>Threads batch <input name="threads_batch" type="number" min="0" value="{{ v.threads_batch }}"></label>
+    <label>Batch <input name="batch" type="number" min="1" value="{{ v.batch }}"
+                        hx-post="/partials/recalculate-memory" hx-trigger="change delay:250ms" hx-vals='{"recalculate_field":"batch"}'
+                        hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this"></label>
+    <label>Micro batch <input name="ubatch" type="number" min="1" value="{{ v.ubatch }}"
+                              hx-post="/partials/recalculate-memory" hx-trigger="change delay:250ms" hx-vals='{"recalculate_field":"ubatch"}'
+                              hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this"></label>
+    <label>CPU MoE
+      <select name="cpu_moe"><option value="n" {{ 'selected' if v.cpu_moe == 'n' }}>off</option><option value="y" {{ 'selected' if v.cpu_moe == 'y' }}>on</option></select>
+    </label>
+    <label>MoE layers CPU <input name="n_cpu_moe" type="number" min="0" value="{{ v.n_cpu_moe }}"><small class="field-hint">Calculado por modelo/VRAM; altere somente para benchmark.</small></label>
+    <label>Dense FFN layers CPU <input name="n_cpu_ffn" type="number" min="0" value="{{ v.n_cpu_ffn }}"><small class="field-hint">Somente modelos densos grandes. Em MoE use o campo acima; combinações inválidas são bloqueadas.</small></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>SAMPLING</legend>
+    <label>Temperatura <input name="temp" type="number" step="0.01" min="0" value="{{ v.temp }}"></label>
+    <label>Top K <input name="top_k" type="number" min="0" value="{{ v.top_k }}"></label>
+    <label>Top P <input name="top_p" type="number" step="0.01" min="0" max="1" value="{{ v.top_p }}"></label>
+    <label>Min P <input name="min_p" type="number" step="0.01" min="0" max="1" value="{{ v.min_p }}"></label>
+    <label>Repeat penalty <input name="repeat_penalty" type="number" step="0.01" min="0" value="{{ v.repeat_penalty }}"></label>
+    <label>Presence penalty <input name="presence_penalty" type="number" step="0.01" min="0" value="{{ v.presence_penalty }}"></label>
+    <label>Frequency penalty <input name="frequency_penalty" type="number" step="0.01" min="0" value="{{ v.frequency_penalty }}"></label>
+    <label>Repeat last N <input name="repeat_last_n" type="number" min="0" value="{{ v.repeat_last_n }}"></label>
+    <label>Seed <input name="seed" type="number" min="-1" value="{{ v.seed }}"></label>
+    <label>Ignore EOS
+      <select name="ignore_eos"><option value="n" {{ 'selected' if v.ignore_eos == 'n' }}>off</option><option value="y" {{ 'selected' if v.ignore_eos == 'y' }}>on</option></select>
+    </label>
+    <label>Sampler seq <input name="sampler_seq" value="{{ v.sampler_seq }}" placeholder="edskypmxt"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>SAMPLING AVANÇADO</legend>
+    <label>DRY multiplier <input name="dry_multiplier" type="number" step="0.01" min="0" value="{{ v.dry_multiplier }}"></label>
+    <label>DRY base <input name="dry_base" type="number" step="0.01" value="{{ v.dry_base }}"></label>
+    <label>DRY allowed length <input name="dry_allowed_length" type="number" min="1" value="{{ v.dry_allowed_length }}"></label>
+    <label>DRY penalty last N <input name="dry_penalty_last_n" type="number" min="-1" value="{{ v.dry_penalty_last_n }}"></label>
+    <label>Top N sigma <input name="top_nsigma" type="number" step="0.01" value="{{ v.top_nsigma }}"></label>
+    <label>Typical P <input name="typical_p" type="number" step="0.01" min="0" max="1" value="{{ v.typical_p }}"></label>
+    <label>XTC probability <input name="xtc_probability" type="number" step="0.01" min="0" max="1" value="{{ v.xtc_probability }}"></label>
+    <label>XTC threshold <input name="xtc_threshold" type="number" step="0.01" min="0" max="1" value="{{ v.xtc_threshold }}"></label>
+    <label>Dynatemp range <input name="dynatemp_range" type="number" step="0.01" min="0" value="{{ v.dynatemp_range }}"></label>
+    <label>Dynatemp exp <input name="dynatemp_exp" type="number" step="0.01" value="{{ v.dynatemp_exp }}"></label>
+    <label>Mirostat <input name="mirostat" type="number" min="0" max="2" value="{{ v.mirostat }}"></label>
+    <label>Mirostat LR <input name="mirostat_lr" type="number" step="0.01" min="0" value="{{ v.mirostat_lr }}"></label>
+    <label>Mirostat ent <input name="mirostat_ent" type="number" step="0.01" min="0" value="{{ v.mirostat_ent }}"></label>
+    <label>Adaptive target <input name="adaptive_target" type="number" step="0.01" min="-1" max="1" value="{{ v.adaptive_target }}"></label>
+    <label>Adaptive decay <input name="adaptive_decay" type="number" step="0.01" min="0" max="1" value="{{ v.adaptive_decay }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>REASONING // SPECULATIVE</legend>
+    <label>Reasoning
+      <select name="reasoning">{% for x in ['auto','on','off'] %}<option {{ 'selected' if v.reasoning == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Reasoning format
+      <select name="reasoning_format"><option value="auto" {{ 'selected' if v.reasoning_format == 'auto' }}>auto</option><option value="deepseek" {{ 'selected' if v.reasoning_format == 'deepseek' }}>deepseek</option><option value="deepseek-legacy" {{ 'selected' if v.reasoning_format == 'deepseek-legacy' }}>deepseek-legacy</option><option value="none" {{ 'selected' if v.reasoning_format == 'none' }}>none</option></select>
+    </label>
+    <label>Reasoning budget <input name="reasoning_budget" type="number" min="-1" value="{{ v.reasoning_budget }}"></label>
+    <label>Budget message <input name="reasoning_budget_message" value="{{ v.reasoning_budget_message }}" placeholder="mensagem ao esgotar orcamento"></label>
+    <label>Reasoning preserve
+      <select name="reasoning_preserve"><option value="auto" {{ 'selected' if v.reasoning_preserve == 'auto' }}>auto</option><option value="y" {{ 'selected' if v.reasoning_preserve == 'y' }}>on</option><option value="n" {{ 'selected' if v.reasoning_preserve == 'n' }}>off</option></select>
+    </label>
+    <label>Preset GPT-OSS / Qwen
+      <select data-ctk-preset data-ctk-target="chat_template_kwargs">
+        <option value="">— escolher preset —</option>
+        <option value='{"reasoning_effort": "low"}'>reasoning_effort low (GPT-OSS)</option>
+        <option value='{"reasoning_effort": "medium"}'>reasoning_effort medium (GPT-OSS)</option>
+        <option value='{"reasoning_effort": "high"}'>reasoning_effort high (GPT-OSS)</option>
+        <option value='{"enable_thinking": false}'>enable_thinking off (Qwen)</option>
+        <option value='{"enable_thinking": true}'>enable_thinking on (Qwen)</option>
+      </select>
+    </label>
+    <label>Chat template kwargs <input name="chat_template_kwargs" value="{{ v.chat_template_kwargs }}" placeholder='{"reasoning_effort": "high"}'><small class="field-hint">JSON enviado a --chat-template-kwargs. É o único caminho inequívoco para low/medium/high do GPT-OSS: o campo OAI reasoning_effort só trata "none".</small></label>
+    <label>Speculative type
+      <select name="spec_type" hx-post="/partials/recalculate-memory" hx-trigger="change"
+              hx-vals='{"recalculate_field":"spec_type"}' hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this">{% for x in ['none','ngram-mod','ngram-simple','ngram-map-k','ngram-map-k4v','ngram-cache','draft-mtp','draft-simple','draft-eagle3','draft-dflash','draft-dspark'] %}<option {{ 'selected' if v.spec_type == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Spec draft N max <input name="spec_draft_n_max" type="number" min="0" value="{{ v.spec_draft_n_max }}"></label>
+    <label>Spec draft N min <input name="spec_draft_n_min" type="number" min="0" value="{{ v.spec_draft_n_min }}"></label>
+    <label>Spec draft P min <input name="spec_draft_p_min" type="number" step="0.01" min="0" max="1" value="{{ v.spec_draft_p_min }}"></label>
+    <label>Spec draft P split <input name="spec_draft_p_split" type="number" step="0.01" min="0" max="1" value="{{ v.spec_draft_p_split }}"></label>
+    <label>Ngram N-min <input name="spec_ngram_mod_n_min" type="number" min="1" value="{{ v.spec_ngram_mod_n_min }}"></label>
+    <label>Ngram N-max <input name="spec_ngram_mod_n_max" type="number" min="1" value="{{ v.spec_ngram_mod_n_max }}"></label>
+    <label>Ngram match <input name="spec_ngram_mod_n_match" type="number" min="1" value="{{ v.spec_ngram_mod_n_match }}"></label>
+    <label>Ngram min hits <input name="spec_ngram_min_hits" type="number" min="1" value="{{ v.spec_ngram_min_hits }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>ROPE // YARN (escala de contexto)</legend>
+    <label>Rope scaling
+      <select name="rope_scaling_type"><option value="" {{ 'selected' if v.rope_scaling_type == '' }}>auto</option>{% for x in ['none','linear','yarn'] %}<option {{ 'selected' if v.rope_scaling_type == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Rope scale <input name="rope_scale" type="number" step="0.1" min="0" value="{{ v.rope_scale }}"></label>
+    <label>Rope freq base <input name="rope_freq_base" type="number" step="0.01" min="0" value="{{ v.rope_freq_base }}"></label>
+    <label>Rope freq scale <input name="rope_freq_scale" type="number" step="0.01" min="0" value="{{ v.rope_freq_scale }}"></label>
+    <label>YaRN orig ctx <input name="yarn_orig_ctx" type="number" min="0" value="{{ v.yarn_orig_ctx }}"></label>
+    <label>YaRN ext factor <input name="yarn_ext_factor" type="number" step="0.01" value="{{ v.yarn_ext_factor }}"></label>
+    <label>YaRN attn factor <input name="yarn_attn_factor" type="number" step="0.01" value="{{ v.yarn_attn_factor }}"></label>
+    <label>YaRN beta slow <input name="yarn_beta_slow" type="number" step="0.01" value="{{ v.yarn_beta_slow }}"></label>
+    <label>YaRN beta fast <input name="yarn_beta_fast" type="number" step="0.01" value="{{ v.yarn_beta_fast }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>MULTIMODAL</legend>
+    <label>Omni (visão)
+      <select name="omni" hx-post="/partials/recalculate-memory" hx-trigger="change"
+              hx-vals='{"recalculate_field":"omni"}' hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this">
+        <option value="n" {{ 'selected' if v.omni == 'n' }}>off (máximo contexto)</option>
+        <option value="y" {{ 'selected' if v.omni == 'y' }}>on (recalcula VRAM/contexto)</option>
+      </select>
+    </label>
+    <label>MMProj offload
+      <select name="mmproj_offload"><option value="y" {{ 'selected' if v.mmproj_offload == 'y' }}>on</option><option value="n" {{ 'selected' if v.mmproj_offload == 'n' }}>off</option></select>
+    </label>
+    <label>No mmproj auto
+      <select name="no_mmproj_auto"><option value="n" {{ 'selected' if v.no_mmproj_auto == 'n' }}>off</option><option value="y" {{ 'selected' if v.no_mmproj_auto == 'y' }}>on</option></select>
+    </label>
+    <label>Audio (vocoder)
+      <select name="audio"><option value="n" {{ 'selected' if v.audio == 'n' }}>off</option><option value="y" {{ 'selected' if v.audio == 'y' }}>on</option></select>
+    </label>
+    <label>Image min tokens <input name="image_min_tokens" type="number" min="0" value="{{ v.image_min_tokens }}"></label>
+    <label>Image max tokens <input name="image_max_tokens" type="number" min="0" value="{{ v.image_max_tokens }}"></label>
+    <label>MTMD batch max <input name="mtmd_batch_max" type="number" min="0" value="{{ v.mtmd_batch_max }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>REDE // SERVIDOR</legend>
+    <label>Host <input name="host" value="{{ v.host }}"></label>
+    <label>Porta pública / API <input name="port" type="number" min="1" max="65535" value="{{ v.port }}"><small class="field-hint">Com o gateway Asael, esta é a porta pública. O motor interno usa a seguinte.</small></label>
+    <label>Compatibilidade universal do agente
+      <select name="agent_compat">
+        <option value="y" {{ 'selected' if v.agent_compat == 'y' }}>on — gerar perfil local</option>
+        <option value="n" {{ 'selected' if v.agent_compat == 'n' }}>off</option>
+      </select>
+      <small class="field-hint">Gera .crono-agent/agent-local.env.sh e metadados para qualquer cliente OpenAI-compatible.</small>
+    </label>
+    <label>Agentic
+      <select name="agentic"><option value="y" {{ 'selected' if v.agentic == 'y' }}>on (--agent)</option><option value="n" {{ 'selected' if v.agentic == 'n' }}>off</option></select>
+    </label>
+    <label>Ferramentas
+      <select name="tools"><option value="all" {{ 'selected' if v.tools == 'all' }}>all</option><option value="readonly" {{ 'selected' if v.tools == 'readonly' }}>readonly</option><option value="none" {{ 'selected' if v.tools == 'none' }}>none</option></select>
+    </label>
+    <label>Fit automático
+      <select name="fit"><option value="y" {{ 'selected' if v.fit == 'y' }}>on</option><option value="n" {{ 'selected' if v.fit == 'n' }}>off</option></select>
+      <small class="field-hint">Ativa o planejamento automático. Em MoE com --n-cpu-moe calculado, o plano é resolvido antes do lançamento e o Fit nativo fica off por incompatibilidade entre os dois mecanismos.</small>
+    </label>
+    <label>Fit target MB <input name="fit_target" type="number" min="0" value="{{ v.fit_target }}"></label>
+    <label>Fit contexto <input name="fit_ctx" type="number" min="1" value="{{ v.fit_ctx }}"></label>
+    <label>Sleep idle (s) <input name="sleep_idle" type="number" min="-1" value="{{ v.sleep_idle }}"></label>
+    <label>Timeout (s) <input name="timeout" type="number" min="1" value="{{ v.timeout }}"></label>
+    <label>Threads HTTP <input name="threads_http" type="number" min="-1" value="{{ v.threads_http }}"></label>
+    <label>SSE ping interval <input name="sse_ping_interval" type="number" min="-1" value="{{ v.sse_ping_interval }}"></label>
+    <label>Reuse port
+      <select name="reuse_port"><option value="n" {{ 'selected' if v.reuse_port == 'n' }}>off</option><option value="y" {{ 'selected' if v.reuse_port == 'y' }}>on</option></select>
+    </label>
+    <label>Offline
+      <select name="offline"><option value="n" {{ 'selected' if v.offline == 'n' }}>off</option><option value="y" {{ 'selected' if v.offline == 'y' }}>on</option></select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>CACHE // CHECKPOINTS</legend>
+    <label>Cache RAM (MB) <input name="cache_ram" type="number" min="0" value="{{ v.cache_ram }}"
+                                  hx-post="/partials/recalculate-memory" hx-trigger="change delay:250ms" hx-vals='{"recalculate_field":"cache_ram"}'
+                                  hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this"><small>Limite do cache de prompts ociosos em RAM; não limita checkpoints.</small></label>
+    <label>Context checkpoints <input name="ctx_checkpoints" type="number" min="0" value="{{ v.ctx_checkpoints }}"
+                                        hx-post="/partials/recalculate-memory" hx-trigger="change delay:250ms" hx-vals='{"recalculate_field":"ctx_checkpoints"}'
+                                        hx-include="closest form" hx-target="#action-sink" hx-disabled-elt="this"><small>Cada checkpoint mantém uma cópia de estado no host; 0 desativa.</small></label>
+    <label>Checkpoint min step <input name="checkpoint_min_step" type="number" min="1" value="{{ v.checkpoint_min_step }}"></label>
+    <label>Context shift
+      <select name="context_shift"><option value="n" {{ 'selected' if v.context_shift == 'n' }}>off</option><option value="y" {{ 'selected' if v.context_shift == 'y' }}>on</option></select>
+    </label>
+    <label>Warmup
+      <select name="warmup"><option value="y" {{ 'selected' if v.warmup == 'y' }}>on</option><option value="n" {{ 'selected' if v.warmup == 'n' }}>off</option></select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>LOGS // DEBUG</legend>
+    <label>Log verbosity <input name="log_verbosity" type="number" min="0" max="10" value="{{ v.log_verbosity }}"></label>
+    <label>Log file <input name="log_file" value="{{ v.log_file }}" placeholder="/caminho/log.txt"></label>
+    <label>Log colors
+      <select name="log_colors">{% for x in ['auto','on','off'] %}<option {{ 'selected' if v.log_colors == x }}>{{ x }}</option>{% endfor %}</select>
+    </label>
+    <label>Log prefix
+      <select name="log_prefix"><option value="y" {{ 'selected' if v.log_prefix == 'y' }}>on</option><option value="n" {{ 'selected' if v.log_prefix == 'n' }}>off</option></select>
+    </label>
+    <label>Log timestamps
+      <select name="log_timestamps"><option value="y" {{ 'selected' if v.log_timestamps == 'y' }}>on</option><option value="n" {{ 'selected' if v.log_timestamps == 'n' }}>off</option></select>
+    </label>
+    <label>Metrics
+      <select name="metrics"><option value="n" {{ 'selected' if v.metrics == 'n' }}>off</option><option value="y" {{ 'selected' if v.metrics == 'y' }}>on</option></select>
+    </label>
+    <label>Perf
+      <select name="perf"><option value="n" {{ 'selected' if v.perf == 'n' }}>off</option><option value="y" {{ 'selected' if v.perf == 'y' }}>on</option></select>
+    </label>
+    <label>Check tensors
+      <select name="check_tensors"><option value="n" {{ 'selected' if v.check_tensors == 'n' }}>off</option><option value="y" {{ 'selected' if v.check_tensors == 'y' }}>on</option></select>
+    </label>
+    <label>SPM infill
+      <select name="spm_infill"><option value="n" {{ 'selected' if v.spm_infill == 'n' }}>off</option><option value="y" {{ 'selected' if v.spm_infill == 'y' }}>on</option></select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>AGENTIC // UI</legend>
+    <label>Jinja
+      <select name="jinja"><option value="y" {{ 'selected' if v.jinja == 'y' }}>on</option><option value="n" {{ 'selected' if v.jinja == 'n' }}>off</option></select>
+    </label>
+    <label>Slot similarity <input name="slot_similarity" type="number" step="0.01" min="0" max="1" value="{{ v.slot_similarity }}"></label>
+    <label>Agentic max turns <input name="agentic_max_turns" type="number" min="0" value="{{ v.agentic_max_turns }}"></label>
+    <label>Tool preview lines <input name="agentic_max_tool_preview_lines" type="number" min="1" value="{{ v.agentic_max_tool_preview_lines }}"></label>
+    <label>UI config file <input name="ui_config_file" value="{{ v.ui_config_file }}" placeholder="/caminho/ui.json"></label>
+    <label>Override KV <input name="override_kv" value="{{ v.override_kv }}" placeholder="chave=TIPO:valor"></label>
+    <label>Op offload
+      <select name="op_offload"><option value="y" {{ 'selected' if v.op_offload == 'y' }}>on</option><option value="n" {{ 'selected' if v.op_offload == 'n' }}>off</option></select>
+    </label>
+    <label>Slot save path <input name="slot_save_path" value="{{ v.slot_save_path }}" placeholder="/caminho/para/salvar/kv/"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>SEGURANÇA // SSL // CORS</legend>
+    <label>API key <input name="api_key" value="{{ v.api_key }}" placeholder="minha-chave-secreta" type="password"></label>
+    <label>API key file <input name="api_key_file" value="{{ v.api_key_file }}" placeholder="/caminho/api_keys.txt"></label>
+    <label>SSL key file <input name="ssl_key_file" value="{{ v.ssl_key_file }}" placeholder="/caminho/key.pem"></label>
+    <label>SSL cert file <input name="ssl_cert_file" value="{{ v.ssl_cert_file }}" placeholder="/caminho/cert.pem"></label>
+    <label>CORS origins <input name="cors_origins" value="{{ v.cors_origins }}" placeholder="* (padrão)"></label>
+    <label>CORS methods <input name="cors_methods" value="{{ v.cors_methods }}" placeholder="GET,POST,DELETE,OPTIONS"></label>
+    <label>CORS headers <input name="cors_headers" value="{{ v.cors_headers }}" placeholder="* (padrão)"></label>
+    <label>CORS credentials
+      <select name="cors_credentials"><option value="y" {{ 'selected' if v.cors_credentials == 'y' }}>on</option><option value="n" {{ 'selected' if v.cors_credentials == 'n' }}>off</option></select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>MODELO // MCP EXTERNO OPCIONAL // METACOGNIÇÃO</legend>
+    <input type="hidden" name="mcp_native" value="n">
+    <input type="hidden" name="mcp_policy" value="safe">
+    <input type="hidden" name="mcp_workspace" value="{{ v.mcp_workspace }}">
+    <input type="hidden" name="mcp_snn_threads" value="{{ v.mcp_snn_threads }}">
+    <input type="hidden" name="mcp_snn_steps" value="{{ v.mcp_snn_steps }}">
+    <input type="hidden" name="mcp_repeat_limit" value="{{ v.mcp_repeat_limit }}">
+    <label>MCP config file (.json)
+      <input name="mcp_config_file" placeholder="/caminho/mcp_servers.json" value="{{ v.mcp_config_file }}">
+    </label>
+    <label>MCP config JSON (inline)
+      <textarea name="mcp_config_json" rows="2" placeholder='{"mcpServers": {"echo": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]}}}' style="width:100%;font-family:var(--mono);font-size:.75rem;">{{ v.mcp_config_json }}</textarea>
+    </label>
+    <label>Model alias <input name="alias" value="{{ v.alias }}" placeholder="meu-modelo (via API)"></label>
+    <label>Model tags <input name="tags" value="{{ v.tags }}" placeholder="llama,portugues,custom"></label>
+    {% if v.metacognition %}
+    <div class="notice success" style="margin-top:8px;font-size:.8rem;padding:6px 10px;">
+      &#x1F9E0; <strong>MetaCognitiveHead detectada</strong> &mdash; cada resposta sera avaliada automaticamente (ACCEPT / REVISE / VERIFY / REGENERATE / ABSTAIN)
+    </div>
+    {% endif %}
+  </fieldset>
+</div>
+<details class="reason-drawer">
+  <summary>Por que estes valores?</summary>
+  <dl>{% for label, reason in parameters.reasons %}<dt>{{ label }}</dt><dd>{{ reason }}</dd>{% endfor %}</dl>
+</details>
+{% if parameters.command_facts %}
+<details class="reason-drawer">
+  <summary>Paridade do comando efetivo</summary>
+  <dl>
+    <dt>Contexto</dt><dd>{{ '{:,}'.format(parameters.command_facts.context) }} tokens{% if parameters.command_facts.context != parameters.command_facts.planner_context %} · planejador VRAM: {{ '{:,}'.format(parameters.command_facts.planner_context) }}{% endif %}</dd>
+    <dt>Fit</dt><dd>{{ parameters.command_facts.fit }} · target {{ parameters.command_facts.fit_target }} MiB · piso {{ '{:,}'.format(parameters.command_facts.fit_ctx) }}</dd>
+    <dt>GPU layers</dt><dd>{{ parameters.command_facts.gpu_layers }}{% if parameters.command_facts.fit == 'on' %} · estimativa: {{ parameters.command_facts.planner_gpu_layers }}{% endif %}</dd>
+    <dt>KV</dt><dd>{{ parameters.command_facts.kv }} · {{ parameters.command_facts.kv_offload }}</dd>
+    <dt>Load mode</dt><dd>{{ parameters.command_facts.load_mode }}</dd>
+    <dt>GPU/execução</dt><dd>flash={{ parameters.command_facts.flash }} · device={{ parameters.command_facts.device }} · batch={{ parameters.command_facts.batch }} · threads={{ parameters.command_facts.threads }}</dd>
+    <dt>Visão/MMProj</dt><dd>{{ parameters.command_facts.vision }} · {{ parameters.command_facts.mmproj }} · offload={{ parameters.command_facts.mmproj_offload }}</dd>
+    <dt>Reasoning</dt><dd>{{ parameters.command_facts.reasoning }}</dd>
+    <dt>Sampling</dt><dd>{{ parameters.command_facts.sampling }}</dd>
+  </dl>
+</details>
+{% endif %}
+{% endif %}

@@ -1,0 +1,101 @@
+<div class="eval-runner" data-eval-state="{{ eval_state.state }}">
+    <div style="display:flex; gap: 1.5rem; align-items: center; flex-wrap: wrap;">
+      <span style="font-family: var(--mono); font-size: .85rem;">
+        Status:
+        {% if eval_state.state == 'running' %}
+          <span style="color: var(--phosphor); font-weight: 700;">EXECUTANDO</span>
+        {% elif eval_state.state == 'done' %}
+          <span style="color: var(--phosphor); font-weight: 700;">CONCLUÍDO</span>
+        {% elif eval_state.state == 'error' %}
+          <span style="color: var(--danger); font-weight: 700;">ERRO</span>
+        {% elif eval_state.state == 'stopping' %}
+          <span style="color: var(--amber); font-weight: 700;">PARANDO...</span>
+        {% elif eval_state.state == 'stopped' %}
+          <span style="color: var(--amber); font-weight: 700;">INTERROMPIDO</span>
+        {% elif eval_state.state == 'skipped' %}
+          <span style="color: var(--amber); font-weight: 700;">PULADO</span>
+        {% else %}
+          <span style="color: var(--muted);">ocioso</span>
+        {% endif %}
+      </span>
+
+      {% if eval_state.progress and (eval_state.progress.passed or eval_state.progress.failed) %}
+        <span style="font-family: var(--mono); font-size: .82rem;">
+          <span style="color: var(--phosphor);">&#10003; {{ eval_state.progress.passed }}</span>
+          &nbsp;
+          <span style="color: var(--danger);">&#10007; {{ eval_state.progress.failed }}</span>
+          {% if eval_state.progress.axis %}
+            &nbsp;| Eixo {{ eval_state.progress.axis }}
+          {% endif %}
+        </span>
+      {% endif %}
+
+      {% if eval_state.dashboard_timestamp %}
+        <span style="font-family: var(--mono); font-size: .72rem; color: var(--muted);">
+          Dashboard: {{ eval_state.dashboard_timestamp[:19] }}
+        </span>
+      {% endif %}
+
+      <div style="margin-left: auto; display: flex; gap: .5rem;">
+        <button type="button"
+                data-eval-stop
+                style="padding:.45rem 1rem;border:1px solid var(--danger);color:var(--danger);background:transparent;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:.72rem;font-weight:700;"
+                {% if eval_state.state != 'running' %}disabled{% endif %}
+                >
+          ⏹ PARAR
+        </button>
+        {% if eval_state.state == 'done' %}
+          <button type="button"
+                  data-eval-dashboard
+                  style="padding:.45rem 1rem;border:1px solid var(--line);background:var(--panel);color:var(--phosphor);border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:.72rem;"
+                  >
+            ↻ DASHBOARD
+          </button>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if eval_state.progress and eval_state.state == 'running' %}
+      <div style="margin-top: .5rem;">
+        <div style="display:flex; justify-content: space-between; font-family: var(--mono); font-size: .68rem; color: var(--muted); margin-bottom: .2rem;">
+          <span>{{ eval_state.progress.current }} / {{ eval_state.progress.total }} testes</span>
+          <span>Eixo {{ eval_state.progress.axis or '...' }}</span>
+        </div>
+        <div style="height: 6px; background: var(--panel-2); border-radius: 99px; overflow: hidden;">
+          <div style="height: 100%; background: var(--phosphor); border-radius: 99px;
+               width: {{ (eval_state.progress.current / (eval_state.progress.total or 1) * 100) | round(1) }}%;
+               transition: width .3s;"></div>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if eval_state.progress.axes %}
+      <div class="live-axis-chart" aria-label="Resultados por eixo em tempo real">
+        <div class="live-axis-title">Eixos avaliados em tempo real</div>
+        {% for axis, values in eval_state.progress.axes|dictsort %}
+          <div class="live-axis-row">
+            <strong>Eixo {{ axis }}</strong>
+            <div class="live-axis-track" title="{{ values.passed }} aprovados, {{ values.failed }} falhas">
+              {% set completed = values.completed or 1 %}
+              <span class="live-axis-pass" style="width: {{ (values.passed / completed * 100)|round(1) }}%"></span>
+              <span class="live-axis-fail" style="width: {{ (values.failed / completed * 100)|round(1) }}%"></span>
+            </div>
+            <span>{{ '%.1f'|format(values.mean_score) }}/10</span>
+            <small>{{ values.completed }} testes</small>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if eval_state.error %}
+      <div style="color: var(--danger); font-family: var(--mono); font-size: .78rem; margin-top: .4rem;">
+        {{ eval_state.error }}
+      </div>
+    {% endif %}
+
+    {% if eval_error %}
+      <div style="color: var(--danger); font-family: var(--mono); font-size: .78rem; margin-top: .4rem;">
+        {{ eval_error }}
+      </div>
+    {% endif %}
+  </div>

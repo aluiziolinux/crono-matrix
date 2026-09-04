@@ -1,0 +1,14 @@
+<section id="model-detail" hx-swap-oob="innerHTML">{% include "partials/model_detail.html" %}</section>
+<div id="parameters-panel" hx-swap-oob="innerHTML">{% include "partials/parameters.html" %}</div>
+<div id="notice-region" hx-swap-oob="innerHTML">
+  {% if error %}
+  <div class="notice error">{{ error }}</div>
+  {% else %}
+  <div class="notice success">
+    Memória recalculada: contexto {{ '{:,}'.format(parameters["values"]["ctx"]) }},
+    KV {{ parameters["values"]["cache_k"] }}/{{ parameters["values"]["cache_v"] }},
+    batch {{ parameters["values"]["batch"] }}/{{ parameters["values"]["ubatch"] }},
+    visão {{ 'ativa' if parameters["values"]["omni"] == 'y' else 'desativada' }}.
+  </div>
+  {% endif %}
+</div>

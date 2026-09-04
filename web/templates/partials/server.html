@@ -1,0 +1,112 @@
+<div class="server-state {{ process.state }}">
+  <div class="state-symbol"><span></span></div>
+  <div>
+    <span class="eyebrow">ESTADO DO PROCESSO</span>
+    <strong>{{ process.state|upper }}</strong>
+    {% if process.pid %}<small>PID {{ process.pid }} · {{ process.model }}</small>{% endif %}
+  </div>
+</div>
+{% if process.runtime_effective.ready %}
+<div class="mcp-runtime ready">
+  <span>CONFIGURACAO EFETIVA /PROPS</span>
+  <strong>{{ '{:,}'.format(process.runtime_effective.context_window) }} TOKENS</strong>
+  <small>solicitado: {{ '{:,}'.format(process.runtime_effective.requested_context) }} · slots: {{ process.runtime_effective.total_slots }}</small>
+  {% set buffers = process.runtime_effective.get('memory_buffers', {}) %}
+  {% set kv = buffers.get('kv', {}) %}
+  {% set rs = buffers.get('rs', {}) %}
+  {% if kv.get('total_mb', 0) %}<small>KV real: {{ kv.get('placement', 'não verificado')|upper }} · GPU {{ '%.1f'|format(kv.get('gpu_mb', 0)) }} MiB · CPU {{ '%.1f'|format(kv.get('cpu_mb', 0)) }} MiB</small>{% endif %}
+  {% if rs.get('total_mb', 0) %}<small>Estado recorrente real: {{ rs.get('placement', 'não verificado')|upper }} · GPU {{ '%.1f'|format(rs.get('gpu_mb', 0)) }} MiB · CPU {{ '%.1f'|format(rs.get('cpu_mb', 0)) }} MiB</small>{% endif %}
+  {% if process.runtime_effective.context_window != process.runtime_effective.requested_context %}
+  <small>O Fit ajustou o contexto durante o carregamento; este valor efetivo é a verdade do processo.</small>
+  {% endif %}
+</div>
+{% endif %}
+{% if process.running %}
+<div class="mcp-runtime {{ 'error' if process.memory_guard.error else 'ready' }}">
+  <span>PROTEÇÃO DE RAM C99</span>
+  <strong>{{ 'ERRO' if process.memory_guard.error else 'ATIVA' }}</strong>
+  <small>admissão {{ process.memory_guard.reserve_mb }} MiB · alerta {{ process.memory_guard.trigger_mb }} MiB · disponível {{ process.memory_guard.available_mb }} MiB</small>
+  {% if process.memory_guard.scope_unit %}<small>{{ process.memory_guard.scope_unit }} · fase {{ process.memory_guard.scope_phase }} · MemoryHigh {{ process.memory_guard.memory_high_mb }} MiB · margem {{ process.memory_guard.scope_headroom_mb }} MiB</small>{% endif %}
+  <small>{{ process.memory_guard.last_action }}</small>
+  {% if process.memory_guard.pressure_count %}
+  <small>{{ process.memory_guard.pressure_count }} amostras sob pressão · {{ process.memory_guard.control_mode }}</small>
+  {% endif %}
+  {% if process.memory_guard.error %}<small>{{ process.memory_guard.error }}</small>{% endif %}
+</div>
+{% endif %}
+{% if process.mcp_state != 'disabled' %}
+<div class="mcp-runtime {{ process.mcp_state }}">
+  <span>MCP NATIVO</span>
+  <strong>{{ process.mcp_state|upper }}</strong>
+  {% if process.mcp_tools %}<small>{{ process.mcp_tools }} ferramentas</small>{% endif %}
+  {% if process.mcp_error %}<small>{{ process.mcp_error }}</small>{% endif %}
+</div>
+{% endif %}
+{% set universal_active = process.agent_compat.global_enabled %}
+{% set universal_pending = process.agent_global_default and not universal_active %}
+<div class="mcp-runtime {{ 'ready' if universal_active else 'idle' }}">
+  <span>AGENTE LOCAL UNIVERSAL</span>
+  <strong>{{ 'ATIVO' if universal_active else ('PREPARADO' if universal_pending else 'DESATIVADO') }}</strong>
+  {% if process.agent_compat.enabled %}
+  <small>modelo: {{ process.agent_compat.model }}</small>
+  <small>API OpenAI-compatible: {{ process.agent_compat.endpoint }}</small>
+  <small>perfil: {{ process.agent_compat.agent_env }}</small>
+  <small>metadados: {{ process.agent_compat.agent_metadata }}</small>
+  <small>contexto: {{ '{:,}'.format(process.agent_compat.context_window) }} · compacta em {{ '{:,}'.format(process.agent_compat.auto_compact_token_limit) }}</small>
+  <small>modalidades: {{ process.agent_compat.modalities|join(', ') }}</small>
+  {% set universal_caps = process.agent_compat.get('capabilities', {}) %}
+  {% set universal_server_caps = process.agent_compat.get('server_capabilities', {}) %}
+  {% set native_probe = universal_server_caps.get('native_tools', {}) %}
+  {% if universal_caps %}
+  <small>capacidades: tools={{ 'sim' if universal_caps.get('tool_call') else 'não' }} · anexos={{ 'sim' if universal_caps.get('attachment') else 'não' }} · temperatura={{ 'sim' if universal_caps.get('temperature') else 'não' }}</small>
+  {% endif %}
+  {% if native_probe.get('attempted') %}
+  <small>llama.cpp nativo: {{ universal_server_caps.get('native_tool_count', 0) }} ferramentas · {{ 'endpoint confirmado' if native_probe.get('available') else 'endpoint indisponível' }}</small>
+  {% endif %}
+  {% if process.agent_compat.reasoning_enabled %}
+  <small>raciocínio OpenCode: off · low 512 · medium 2.048 · high 8.192 · max</small>
+  {% else %}
+  <small>raciocínio OpenCode: desativado no llama-server</small>
+  {% endif %}
+  {% if process.agent_compat.opencode_config %}<small>OpenCode sincronizado: {{ process.agent_compat.opencode_config }}</small>{% endif %}
+  {% else %}
+  <small>O perfil universal será gerado quando um modelo for iniciado.</small>
+  {% endif %}
+  {% if universal_active or universal_pending %}
+  <button class="ui-button" type="button" hx-post="/agent/toggle" hx-vals='{"enabled":"0"}' hx-target="#action-sink">
+    DESATIVAR MODO UNIVERSAL
+  </button>
+  {% else %}
+  <button class="ui-button" type="button" hx-post="/agent/toggle" hx-vals='{"enabled":"1"}' hx-target="#action-sink">
+    ATIVAR MODO UNIVERSAL
+  </button>
+  <small>Disponível mesmo antes de iniciar o servidor.</small>
+  {% endif %}
+  {% if universal_active %}
+  <small>modo universal: ativo; perfil em {{ process.agent_compat.global_config }}</small>
+  {% endif %}
+  {% if process.agent_compat.global_error %}<small class="inline-error">Modo universal: {{ process.agent_compat.global_error }}</small>{% endif %}
+</div>
+{% if process.ready %}
+<a class="endpoint" href="http://{{ process.host }}:{{ process.port }}" target="_blank" rel="noreferrer">
+  API pública: http://{{ process.host }}:{{ process.public_port }} ↗
+</a>
+{% if process.gateway_enabled %}<div class="port-routing">
+  <span>GATEWAY PÚBLICO <strong>{{ process.host }}:{{ process.public_port }}</strong></span>
+  <span>LLAMA INTERNO <strong>{{ process.host }}:{{ process.upstream_port }}</strong></span>
+</div>{% endif %}
+<a class="ui-button" href="http://{{ process.host }}:{{ process.port }}" target="_blank" rel="noreferrer">
+  ABRIR CHAT LLAMA.CPP ↗
+</a>
+<button class="stop-button" type="button" hx-post="/server/stop" hx-target="#action-sink">■ ENCERRAR</button>
+{% elif process.running %}
+<p class="muted-copy">Processo iniciado; aguardando o modelo carregar e o /props confirmar a configuracao efetiva.</p>
+<button class="stop-button" type="button" hx-post="/server/stop" hx-target="#action-sink">■ CANCELAR CARGA</button>
+{% elif process.external_conflict %}
+<p class="inline-error">{{ process.error }}</p>
+<p class="muted-copy">O launcher não encerra processos externos automaticamente. Libere a porta 8080 ou escolha outra porta.</p>
+{% elif process.error %}
+<p class="inline-error">{{ process.error }}</p>
+{% else %}
+<p class="muted-copy">Aguardando comando de inicialização.</p>
+{% endif %}

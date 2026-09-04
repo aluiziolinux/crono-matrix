@@ -1,0 +1,9 @@
+Copyright (c) 2026 Crono Matrix. All rights reserved.
+
+This repository is source-available for evaluation. No permission is granted
+to copy, modify, redistribute, sublicense, or sell this software without prior
+written authorization from the copyright holder.
+
+Third-party components retain their own licenses. In particular, llama.cpp is
+distributed under the MIT License; its pinned revision, local patch and license
+notice are documented under third_party/llama.cpp/.

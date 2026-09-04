@@ -1,0 +1,16 @@
+{% if error %}<p class="inline-error">{{ error }}</p>{% endif %}
+{% set d = download %}
+{% if d.state in ['running','cancelling'] %}
+<div class="download-status" hx-get="/partials/download" hx-trigger="every 1s" hx-target="this" hx-swap="outerHTML">
+  <div><span>{{ d.filename }}</span><strong>{{ ((d.downloaded / d.total * 100) if d.total else 0)|round(1) }}%</strong></div>
+  <progress max="{{ d.total or 1 }}" value="{{ d.downloaded }}"></progress>
+  <small>{{ d.downloaded|bytes }} / {{ d.total|bytes }} · {{ d.speed|int|bytes }}/s</small>
+  {% if d.state == 'running' %}<button type="button" class="text-button danger" hx-post="/hf/download/cancel" hx-target="#download-panel">CANCELAR</button>{% endif %}
+</div>
+{% elif d.state == 'done' %}
+<p class="transfer-done">✓ Download concluído · {{ d.paths|length }} arquivo(s)</p>
+{% elif d.state in ['error','cancelled'] %}
+<p class="inline-error">{{ d.error or 'Download cancelado.' }}</p>
+{% else %}
+<p class="muted-copy">Nenhuma transferência ativa.</p>
+{% endif %}

@@ -1,0 +1,32 @@
+{% if model %}
+<header class="model-title">
+  <div>
+    <span class="eyebrow">MODELO SELECIONADO</span>
+    <h1>{{ model.name }}</h1>
+  </div>
+  <span class="matrix-badge">{{ model.quant }}</span>
+</header>
+<div class="spec-strip">
+  <div><span>ARQUITETURA</span><strong>{{ model.arch }}</strong></div>
+  <div><span>PARÂMETROS</span><strong>{{ model.params }}</strong></div>
+  <div><span>CONTEXTO</span><strong>{{ '{:,}'.format(model.ctx_max) }}</strong></div>
+  <div><span>CAMADAS</span><strong>{{ model.layers }}</strong></div>
+  {% if model.swa_layers %}<div><span>LAYOUT</span><strong>{{ model.swa_layers }} SWA · {{ model.global_layers }} global · {{ model.moe_layers }} MoE</strong></div>
+  {% elif model.layer_layout_valid %}<div><span>LAYOUT</span><strong>{{ model.attention_layers }} KV · {{ model.recurrent_layers }} SSM · {{ model.moe_layers }} MoE</strong></div>{% endif %}
+  <div><span>TAMANHO</span><strong>{{ '%.2f'|format(model.size_gb) }} GB</strong></div>
+</div>
+<div class="capability-line">
+  {% set vision_active = model.mmproj_valid and parameters and parameters["values"]["omni"] == 'y' %}
+  <span class="cap {{ 'on' if vision_active else '' }}">
+    VISÃO {{ 'ATIVA' if vision_active else ('DISPONÍVEL · DESATIVADA' if model.mmproj_valid else 'INDISPONÍVEL') }}
+  </span>
+  <span class="cap {{ 'on' if model.vocoder else '' }}">ÁUDIO {{ 'ON' if model.vocoder else 'OFF' }}</span>
+  <span class="cap {{ 'on' if model.has_mtp else '' }}">MTP {{ 'ON' if model.has_mtp else 'OFF' }}</span>
+  {% if model.profile %}<span class="cap on">PERFIL {{ model.profile }}</span>{% endif %}
+</div>
+{% else %}
+<div class="model-empty">
+  <span class="matrix-prompt">&gt;_</span>
+  <div><h1>Nenhum modelo selecionado</h1><p>Escolha um GGUF na coluna esquerda para calcular os parâmetros.</p></div>
+</div>
+{% endif %}

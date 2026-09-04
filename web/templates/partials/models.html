@@ -1,0 +1,36 @@
+{% set update_status = update_status|default(state.model_update_snapshot(), true) %}
+{% if error %}<p class="inline-error">{{ error }}</p>{% endif %}
+{% if update_status.state != 'idle' or update_status.checked_at %}
+<div id="model-update-status" class="model-update-status {{ update_status.state }}"
+     {% if update_status.running %}hx-post="/partials/models" hx-trigger="every 1s"
+     hx-target="#models-panel" hx-swap="innerHTML" hx-vals='{"refresh":"0"}'{% endif %}>
+  <span>
+    <strong>
+      {% if update_status.running %}VERIFICANDO GGUFs{% elif update_status.state == 'done' %}VERIFICAÇÃO CONCLUÍDA{% elif update_status.state == 'error' %}VERIFICAÇÃO COM ERRO{% else %}STATUS DA ORIGEM{% endif %}
+    </strong>
+    {% if update_status.running %}{{ update_status.completed }}/{{ update_status.total }}{% elif update_status.checked_at %}{{ update_status.checked_at[:16]|replace('T', ' ') }} UTC{% endif %}
+  </span>
+  {% if update_status.current %}<small>{{ update_status.current }}</small>{% endif %}
+</div>
+{% endif %}
+<div class="model-list" data-model-list>
+  {% for item in models %}
+  {% set verification = item["update"]|default({}, true) %}
+  <button type="button" class="model-row {{ 'selected' if item.selected else '' }}"
+          data-model-name="{{ item.name|lower }}"
+          hx-post="/partials/select-model" hx-vals='{"model_id":"{{ item.id }}"}'
+          hx-target="#action-sink" hx-disabled-elt="this">
+    <span class="model-glyph">{{ '%02d'|format(loop.index) }}</span>
+    <span class="model-copy">
+      <strong>{{ item.name }}</strong>
+      <small>{{ item.relative }}</small>
+      <small class="model-origin {{ verification.state }}" title="{{ verification.detail }}">
+        {{ verification.label }}{% if verification.repo_id %} · {{ verification.repo_id }}{% endif %}
+      </small>
+    </span>
+    <span class="model-size">{{ item.size|bytes }}</span>
+  </button>
+  {% else %}
+  <p class="empty-state">Nenhum GGUF encontrado neste diretório.</p>
+  {% endfor %}
+</div>

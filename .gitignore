@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.coverage
+
+# Checkout e builds locais do llama.cpp
+/llama.cpp/
+/build*/
+/.crono-native/
+/.crono-runtime/
+
+# Modelos e projetores multimodais nunca pertencem ao repositório
+/modelos/
+/models/
+*.gguf
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+
+# Estado local e resultados gerados
+.crono-agent/
+eval_history/
+eval_results.json
+eval_results.json.*
+eval_dashboard/data/*
+!eval_dashboard/data/.gitkeep
+eval_dashboard/exports/*
+!eval_dashboard/exports/.gitkeep
+*.tmp
+*.log
+*.zip
+Captura_de_tela*.png
+
+# Credenciais e configuração privada
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# IDE e sistema
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

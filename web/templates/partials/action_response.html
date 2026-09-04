@@ -1,0 +1,11 @@
+<div id="server-panel" hx-swap-oob="innerHTML">{% include "partials/server.html" %}</div>
+{% if process.last_command %}
+{% set command = process.last_command %}
+<div id="command-panel" hx-swap-oob="innerHTML">{% include "partials/command.html" %}</div>
+{% endif %}
+{% if model is defined and parameters is defined %}
+<div id="parameters-panel" hx-swap-oob="innerHTML">{% include "partials/parameters.html" %}</div>
+{% endif %}
+<div id="notice-region" hx-swap-oob="innerHTML">
+  {% if error %}<div class="notice error">{{ error }}</div>{% elif message %}<div class="notice success">{{ message }}</div>{% endif %}
+</div>

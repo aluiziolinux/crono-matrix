@@ -1,0 +1,14 @@
+{% if not error %}
+{% set path_oob = true %}{% include "partials/path_configuration.html" %}
+<div id="models-panel" hx-swap-oob="innerHTML">{% include "partials/models.html" %}</div>
+<section id="model-detail" hx-swap-oob="innerHTML">{% include "partials/model_detail.html" %}</section>
+<div id="parameters-panel" hx-swap-oob="innerHTML">{% include "partials/parameters.html" %}</div>
+<strong id="rail-model-name" hx-swap-oob="innerHTML">{{ model.name if model else 'NENHUM MODELO' }}</strong>
+{% endif %}
+<div id="notice-region" hx-swap-oob="innerHTML">
+  {% if error %}
+  <div class="notice error">{{ error }}</div>
+  {% else %}
+  <div class="notice success">Caminhos validados e salvos. {{ models|length }} modelo(s) encontrado(s).</div>
+  {% endif %}
+</div>

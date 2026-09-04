@@ -1,0 +1,78 @@
+<div class="telemetry-grid">
+  <article>
+    <span class="telemetry-label">CPU</span>
+    <strong>{{ hardware.cpu_model }}</strong>
+    <small>{{ hardware.cpu_cores }}C / {{ hardware.cpu_threads }}T · {{ hardware.cpu_temp or 'N/D' }}°C</small>
+  </article>
+  <article>
+    <span class="telemetry-label">MEMÓRIA LIVRE</span>
+    <strong>{{ '%.1f'|format(hardware.ram_avail_gb) }} GB</strong>
+    <meter min="0" max="{{ hardware.ram_total_gb or 1 }}" value="{{ hardware.ram_avail_gb }}"></meter>
+    <small>de {{ '%.1f'|format(hardware.ram_total_gb) }} GB · reserva mínima antes da carga {{ '%.1f'|format(hardware.ram_reserve_mb / 1024) }} GB</small>
+    <small>{{ hardware.memory_guard.last_action }}</small>
+  </article>
+  <article>
+    <span class="telemetry-label">GPU</span>
+    <strong>{{ hardware.gpu_model if hardware.gpu_detected else 'CPU MODE' }}</strong>
+    {% if hardware.gpu_detected %}
+    <small>{{ hardware.gpu_vram_free_gb }} / {{ hardware.gpu_vram_gb }} GB livres · {{ hardware.gpu_temp }}°C</small>
+    {% else %}<small>Nenhuma GPU NVIDIA detectada</small>{% endif %}
+  </article>
+  <article>
+    <span class="telemetry-label">STORAGE</span>
+    <strong>{{ hardware.disk_free_gb }} GB</strong>
+    <small>{{ hardware.storage_type }} · espaço livre</small>
+  </article>
+  <article>
+    <span class="telemetry-label">SWAP DINÂMICO</span>
+    <strong>
+      {% if hardware.swap_nvme_active %}
+        NVMe {{ '%.1f'|format(hardware.swap_nvme_total_mb / 1024) }} GB
+      {% else %}
+        NVMe inativo
+      {% endif %}
+    </strong>
+    <small>
+      ZRAM {{ '%.1f'|format(hardware.swap_zram_total_mb / 1024) }} GB
+      (prio {{ hardware.swap_zram_priority }}) ·
+      NVMe pré-alocado {{ '%.1f'|format(hardware.swap_nvme_total_mb / 1024) }} GB ·
+      prio {{ hardware.swap_nvme_priority if hardware.swap_nvme_active else 'inativa' }} ·
+      recomendado {{ hardware.swap_recommended_gib }} GB ·
+      automático {{ 'ativo' if hardware.auto_nvme_swap == 'y' else 'desativado' }}
+    </small>
+    {% if hardware.swap_nvme_active and not hardware.swap_nvme_preferred %}
+    <small class="error-text">
+      PRIORIDADE INSEGURA: a ZRAM seria usada antes do NVMe. Reaplique antes
+      de iniciar modelos residentes grandes.
+    </small>
+    {% endif %}
+    <small>{{ hardware.swap_plan_reason }}</small>
+    <div class="telemetry-actions">
+      {% set current_swap_gib = (hardware.swap_nvme_total_mb + 1023) // 1024 %}
+      {% set apply_swap_gib = hardware.swap_recommended_gib if hardware.swap_recommended_gib > current_swap_gib else current_swap_gib %}
+      {% if hardware.swap_recommended_gib > 0 and
+            (current_swap_gib < hardware.swap_recommended_gib or not hardware.swap_nvme_preferred) %}
+      <button type="button" class="secondary"
+              hx-post="/system/swap"
+              hx-vals='{"action":"create","size_gib":"{{ apply_swap_gib }}"}'
+              hx-target="#hardware-panel" hx-disabled-elt="this">
+        {{ 'CORRIGIR PRIORIDADE' if current_swap_gib >= hardware.swap_recommended_gib else 'APLICAR ' ~ apply_swap_gib ~ ' GB' }}
+      </button>
+      {% endif %}
+      <button type="button" class="secondary"
+              hx-post="/system/swap/auto"
+              hx-vals='{"enabled":"{{ 'n' if hardware.auto_nvme_swap == 'y' else 'y' }}"}'
+              hx-target="#hardware-panel">
+        AUTO {{ 'OFF' if hardware.auto_nvme_swap == 'y' else 'ON' }}
+      </button>
+      {% if hardware.swap_nvme_active %}
+      <button type="button" class="danger"
+              hx-post="/system/swap" hx-vals='{"action":"remove"}'
+              hx-confirm="Remover o swap NVMe exclusivo do Crono Matrix?"
+              hx-target="#hardware-panel" hx-disabled-elt="this">REMOVER</button>
+      {% endif %}
+    </div>
+    {% if message %}<small class="success-text">{{ message }}</small>{% endif %}
+    {% if error %}<small class="error-text">{{ error }}</small>{% endif %}
+  </article>
+</div>
