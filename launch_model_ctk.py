@@ -27,11 +27,17 @@ except ImportError as exc:  # pragma: no cover - mensagem para instalacao real
         ".venv/bin/pip install -r requirements-gui.txt"
     ) from exc
 
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - dependencia declarada para a GUI
+    Image = None
+
 from web.services import LauncherWebState, EvalRunner
 from launch_model_core import SPECULATIVE_TYPES
 
 
 ROOT = Path(__file__).resolve().parent
+DONATION_QR_PATH = ROOT / "web" / "static" / "assets" / "donation-qrcode.jpeg"
 BUNDLED_MCP_AVAILABLE = (ROOT / "mcp-crono-matrix" / "native_server.mjs").is_file()
 BG = "#050b08"
 SIDEBAR = "#08130d"
@@ -197,6 +203,8 @@ class CronoDesktop(ctk.CTk):
         self._last_eval_dashboard_render: tuple[Any, ...] | None = None
         self._last_radar_render = ""
         self._last_snn_render = ""
+        self._donation_qr_thumb = None
+        self._donation_qr_dialog = None
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -311,20 +319,81 @@ class CronoDesktop(ctk.CTk):
             button.grid(row=row, column=0, padx=14, pady=3, sticky="ew")
             self.nav_buttons[key] = button
 
-        offline = ctk.CTkFrame(side, fg_color=CARD, corner_radius=10, border_width=1, border_color=BORDER)
-        offline.grid(row=10, column=0, padx=16, pady=18, sticky="sew")
-        ctk.CTkLabel(offline, text="●  DESKTOP LOCAL", text_color=GREEN, font=MONO).pack(
-            anchor="w", padx=14, pady=(12, 2)
+        support = ctk.CTkFrame(side, fg_color=CARD, corner_radius=10, border_width=1, border_color=BORDER)
+        support.grid(row=10, column=0, padx=16, pady=14, sticky="sew")
+        ctk.CTkLabel(
+            support, text="APOIE O DESENVOLVIMENTO", text_color=GREEN,
+            font=ctk.CTkFont(family="DejaVu Sans Mono", size=10, weight="bold"),
+        ).pack(anchor="w", padx=12, pady=(10, 5))
+
+        support_body = ctk.CTkFrame(support, fg_color="transparent")
+        support_body.pack(fill="x", padx=10)
+        if Image is not None and DONATION_QR_PATH.is_file():
+            with Image.open(DONATION_QR_PATH) as source:
+                qr_source = source.convert("RGB").copy()
+            self._donation_qr_thumb = ctk.CTkImage(
+                light_image=qr_source, dark_image=qr_source, size=(72, 87),
+            )
+            ctk.CTkButton(
+                support_body, image=self._donation_qr_thumb, text="", width=80, height=95,
+                fg_color="#ffffff", hover_color="#d9f5e2", corner_radius=5,
+                command=self._show_donation_qr,
+            ).pack(side="left", padx=(0, 8), pady=(0, 7))
+            support_message = "PIX opcional\nClique para ampliar"
+        else:
+            support_message = "QR indisponível\nConsulte docs/SUPPORT.md"
+        ctk.CTkLabel(
+            support_body, text=support_message, text_color=TEXT, justify="left",
+            font=ctk.CTkFont(size=10),
+        ).pack(side="left", anchor="center")
+        ctk.CTkLabel(
+            support,
+            text=f"● DESKTOP LOCAL · TELA {self.screen_geometry}",
+            text_color="#507660", font=ctk.CTkFont(family="DejaVu Sans Mono", size=8),
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+    def _show_donation_qr(self) -> None:
+        """Abre o QR local em tamanho legível, sem acessar a rede."""
+        if Image is None or not DONATION_QR_PATH.is_file():
+            messagebox.showerror("Apoie o Crono Matrix", "Arquivo do QR Code não encontrado.")
+            return
+        if self._donation_qr_dialog is not None and self._donation_qr_dialog.winfo_exists():
+            self._donation_qr_dialog.focus_force()
+            return
+
+        dialog = ctk.CTkToplevel(self, fg_color=BG)
+        self._donation_qr_dialog = dialog
+        dialog.title("Apoie o desenvolvimento · Crono Matrix")
+        dialog.geometry("440x570")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+
+        ctk.CTkLabel(
+            dialog, text="APOIE O CRONO MATRIX", text_color=GREEN,
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).pack(pady=(22, 4))
+        ctk.CTkLabel(
+            dialog, text="Sua contribuição ajuda a manter o desenvolvimento.",
+            text_color=MUTED, font=ctk.CTkFont(size=12),
+        ).pack(pady=(0, 12))
+
+        with Image.open(DONATION_QR_PATH) as source:
+            qr_source = source.convert("RGB").copy()
+        self._donation_qr_dialog_image = ctk.CTkImage(
+            light_image=qr_source, dark_image=qr_source, size=(306, 369),
         )
         ctk.CTkLabel(
-            offline, text="Sem FastAPI e sem navegador.\nRede usada apenas sob comando.",
-            text_color=MUTED, justify="left", font=ctk.CTkFont(size=11),
-        ).pack(anchor="w", padx=14, pady=(0, 5))
+            dialog, text="", image=self._donation_qr_dialog_image,
+            fg_color="#ffffff", corner_radius=10,
+        ).pack(padx=28, pady=4)
         ctk.CTkLabel(
-            offline,
-            text=f"TELA {self.screen_geometry}  ·  ESCALA {round(self.ui_scale * 100)}%",
-            text_color="#507660", font=ctk.CTkFont(family="DejaVu Sans Mono", size=9),
-        ).pack(anchor="w", padx=14, pady=(0, 11))
+            dialog, text="Doação voluntária via PIX · nenhum recurso é bloqueado",
+            text_color=MUTED, font=ctk.CTkFont(family="DejaVu Sans Mono", size=9),
+        ).pack(pady=(8, 4))
+        ctk.CTkButton(
+            dialog, text="FECHAR", width=120, fg_color=GREEN_DARK,
+            hover_color=GREEN_HOVER, command=dialog.destroy,
+        ).pack(pady=(4, 16))
 
     def _build_shell(self) -> None:
         shell = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
@@ -1232,7 +1301,8 @@ class CronoDesktop(ctk.CTk):
         hardware, models = result
         self._render_hardware(hardware)
         self._render_models(models)
-        self._load_snn_snapshot()
+        if BUNDLED_MCP_AVAILABLE:
+            self._load_snn_snapshot()
         self._set_status(f"Pronto · {len(models)} modelo(s) GGUF encontrado(s)")
 
     # ------------------------------------------------------------ model events
@@ -1541,14 +1611,15 @@ class CronoDesktop(ctk.CTk):
                 self._render_radar_snapshot(radar_snap)
         except Exception:
             pass
-        try:
-            snn_snap = self.backend.snn_snapshot()
-            snn_key = repr(snn_snap)
-            if snn_key != self._last_snn_render:
-                self._last_snn_render = snn_key
-                self._render_snn_snapshot(snn_snap)
-        except Exception:
-            pass
+        if BUNDLED_MCP_AVAILABLE:
+            try:
+                snn_snap = self.backend.snn_snapshot()
+                snn_key = repr(snn_snap)
+                if snn_key != self._last_snn_render:
+                    self._last_snn_render = snn_key
+                    self._render_snn_snapshot(snn_snap)
+            except Exception:
+                pass
         self.after(400, self._poll_runtime)
 
     def _render_snn_snapshot(self, snn: dict) -> None:

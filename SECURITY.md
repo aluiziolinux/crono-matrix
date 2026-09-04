@@ -18,5 +18,7 @@ ignorados e verificados por `scripts/release_check.py`.
 
 ## Relato responsável
 
-Antes de publicar o repositório, configure no GitHub um endereço privado ou o
-recurso Security Advisories e substitua esta seção pelo canal escolhido.
+Relate vulnerabilidades de forma privada por
+[GitHub Security Advisories](https://github.com/aluiziolinux/crono-matrix/security/advisories/new).
+Não publique detalhes exploráveis em uma issue antes da correção. Inclua versão
+ou commit, plataforma, impacto observado e uma reprodução mínima sem segredos.

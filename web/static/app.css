@@ -443,6 +443,33 @@ meter::-webkit-meter-optimum-value, progress::-webkit-progress-value { backgroun
 .download-status button { margin-top: .65rem; }
 .transfer-done { margin: .75rem; color: var(--phosphor); font: .65rem var(--mono); }
 
+.support-card {
+  display: grid;
+  grid-template-columns: 6.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: .75rem;
+  padding: .7rem;
+  background: linear-gradient(135deg, rgba(105,255,156,.07), transparent 65%);
+}
+.support-qr-link {
+  display: block;
+  padding: .25rem;
+  border: 1px solid var(--line);
+  background: #fff;
+  line-height: 0;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.support-qr-link:hover {
+  border-color: var(--phosphor);
+  box-shadow: 0 0 18px rgba(105,255,156,.2);
+  transform: translateY(-1px);
+}
+.support-qr { display: block; width: 100%; height: auto; }
+.support-copy { min-width: 0; }
+.support-copy strong { color: var(--phosphor); font: 700 .64rem/1.35 var(--mono); letter-spacing: .06em; }
+.support-copy p { margin: .35rem 0; color: var(--text); font-size: .7rem; line-height: 1.35; }
+.support-copy small { color: var(--muted); font: .53rem/1.35 var(--mono); }
+
 .log-dock { min-height: 13rem; }
 .log-tools { gap: .35rem !important; }
 .log-stream { height: 15rem; overflow: auto; padding: .65rem .8rem; background: #010503; scrollbar-color: var(--line-hot) #010503; }
@@ -467,7 +494,7 @@ meter::-webkit-meter-optimum-value, progress::-webkit-progress-value { backgroun
 
 @media (max-width: 1180px) {
   .workspace { grid-template-columns: minmax(16rem, .72fr) minmax(27rem, 1.4fr); }
-  .right-stack { display: grid; grid-column: 1 / -1; grid-template-columns: 1.4fr 1fr 1fr; }
+  .right-stack { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .log-dock { grid-column: 1 / -1; }
 }
 
@@ -485,8 +512,9 @@ meter::-webkit-meter-optimum-value, progress::-webkit-progress-value { backgroun
    .snn-pane { order: 6; }
    .hf-pane { order: 7; }
    .download-pane { order: 8; }
-   .command-pane { order: 9; }
-   .log-dock { order: 10; }
+   .support-pane { order: 9; }
+   .command-pane { order: 10; }
+   .log-dock { order: 11; }
   .parameter-grid { grid-template-columns: 1fr; }
   .spec-strip { grid-template-columns: repeat(2, 1fr); }
   .spec-strip div { border-bottom: 1px solid var(--line); }
@@ -504,6 +532,7 @@ meter::-webkit-meter-optimum-value, progress::-webkit-progress-value { backgroun
   .launch-button, .secondary { width: 100%; }
   .reason-drawer dl { grid-template-columns: 1fr; }
   .log-tools .text-button:last-child { display: none; }
+  .support-card { grid-template-columns: 5.5rem minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {

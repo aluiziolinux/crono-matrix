@@ -69,7 +69,6 @@ async def index(request: Request):
             model=state.model_snapshot(),
             parameters=state.parameter_snapshot(),
             process=state.process_snapshot(),
-            snn=await run_in_threadpool(state.snn_snapshot),
             download=state.download_snapshot(),
         ),
     )
@@ -309,30 +308,6 @@ async def snn_api():
     return await run_in_threadpool(state.snn_snapshot)
 
 
-@app.get("/partials/snn", response_class=HTMLResponse)
-async def snn_partial(request: Request):
-    return templates.TemplateResponse(
-        request=request, name="partials/snn.html",
-        context=context(request, snn=await run_in_threadpool(state.snn_snapshot)),
-    )
-
-
-@app.post("/snn/toggle", response_class=HTMLResponse)
-async def snn_toggle(request: Request):
-    form = await form_values(request)
-    enabled = str(form.get("enabled", "")).lower() in {"1", "true", "y", "on"}
-    try:
-        snapshot = await run_in_threadpool(state.set_snn_enabled, enabled)
-        error = ""
-    except (OSError, ValueError) as exc:
-        snapshot = await run_in_threadpool(state.snn_snapshot)
-        error = str(exc)
-    return templates.TemplateResponse(
-        request=request, name="partials/snn.html",
-        context=context(request, snn=snapshot, snn_error=error),
-    )
-
-
 @app.post("/launcher/stop", response_class=HTMLResponse)
 async def stop_launcher(request: Request):
     client_host = request.client.host if request.client else ""
@@ -449,7 +424,6 @@ async def events(request: Request):
     async def stream():
         sequence = 0
         previous_process = None
-        previous_snn = None
         while not await request.is_disconnected():
             process = state.process_snapshot()
             encoded = json.dumps(process, sort_keys=True, default=str)
@@ -458,13 +432,6 @@ async def events(request: Request):
                 markup = markup.replace("\n", " ")
                 yield f"event: server\ndata: {markup}\n\n"
                 previous_process = encoded
-            snn = await run_in_threadpool(state.snn_snapshot)
-            encoded_snn = json.dumps(snn, sort_keys=True, default=str)
-            if encoded_snn != previous_snn:
-                markup = render_string("partials/snn.html", snn=snn)
-                markup = markup.replace("\n", " ")
-                yield f"event: snn\ndata: {markup}\n\n"
-                previous_snn = encoded_snn
             for item in state.logs_after(sequence):
                 sequence = item["seq"]
                 line = html.escape(item["line"].rstrip("\n")) or " "

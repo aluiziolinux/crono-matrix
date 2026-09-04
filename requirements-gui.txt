@@ -1,2 +1,3 @@
 # Interface desktop moderna. O backend e a interface web não dependem deste arquivo.
 customtkinter==6.0.0
+Pillow>=10.0,<13

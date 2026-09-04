@@ -1,5 +1,8 @@
 # Crono Matrix
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-42f58d.svg)](LICENSE)
+[![CI](https://github.com/aluiziolinux/crono-matrix/actions/workflows/ci.yml/badge.svg)](https://github.com/aluiziolinux/crono-matrix/actions/workflows/ci.yml)
+
 Plano de controle local para `llama.cpp`, com cálculo automático orientado ao
 hardware para modelos GGUF grandes. O mesmo núcleo atende duas interfaces:
 
@@ -83,9 +86,27 @@ Veja [instalação detalhada](docs/INSTALL.md),
 [arquitetura](docs/ARCHITECTURE.md) e
 [integração do llama.cpp](docs/LLAMA_CPP_INTEGRATION.md).
 
+## Documentação
+
+| Documento | Conteúdo |
+| --- | --- |
+| [Instalação](docs/INSTALL.md) | dependências, bootstrap, execução offline e limitações de plataforma |
+| [Arquitetura](docs/ARCHITECTURE.md) | componentes e fluxo UI → planejamento → `llama-server` |
+| [Integração llama.cpp](docs/LLAMA_CPP_INTEGRATION.md) | revisão fixada, patch e atualização segura |
+| [Swap NVMe](docs/SWAP_NVME_DINAMICO.md) | política de memória e monitor C99 |
+| [Atualização de modelos](docs/MODEL_UPDATE_VERIFICATION.md) | origem, hash e estados verificáveis |
+| [Apoio ao projeto](docs/SUPPORT.md) | doações voluntárias e verificação do QR PIX |
+
+## Apoie o desenvolvimento
+
+As interfaces Web e CustomTkinter exibem uma área pequena de apoio com o QR
+PIX. A contribuição é totalmente opcional e não desbloqueia, prioriza ou
+altera qualquer funcionalidade. Consulte [docs/SUPPORT.md](docs/SUPPORT.md)
+antes de doar.
+
 ## Estado do produto
 
-Esta é uma versão alpha preparada para versionamento público. Linux é o alvo
-confirmado nesta edição; suporte Windows ainda não foi validado. A licença
-atual é source-available/proprietária. Troque-a conscientemente antes de
-oferecer permissões de redistribuição ou contribuição externa.
+Esta é uma versão alpha. Linux é o alvo confirmado nesta edição; suporte
+Windows ainda não foi validado. O código do Crono Matrix é distribuído sob a
+[Apache License 2.0](LICENSE). Componentes de terceiros e modelos conservam
+suas próprias licenças, conforme [NOTICE.md](NOTICE.md).

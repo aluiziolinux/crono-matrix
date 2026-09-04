@@ -140,6 +140,29 @@
           {% include "partials/download.html" %}
         </div>
       </section>
+
+      <section class="pane support-pane">
+        <header class="pane-head compact">
+          <div><span class="index">08</span><h2>Apoie o projeto</h2></div>
+          <span class="status-chip">PIX</span>
+        </header>
+        <div class="support-card">
+          <a class="support-qr-link"
+             href="{{ url_for('static', path='assets/donation-qrcode.jpeg') }}"
+             target="_blank" rel="noopener noreferrer"
+             title="Abrir QR Code PIX em tamanho original">
+            <img class="support-qr"
+                 src="{{ url_for('static', path='assets/donation-qrcode.jpeg') }}"
+                 width="408" height="492"
+                 alt="QR Code PIX para apoiar o desenvolvimento do Crono Matrix">
+          </a>
+          <div class="support-copy">
+            <strong>AJUDE O DESENVOLVEDOR</strong>
+            <p>Se o Crono Matrix ajuda seu trabalho, você pode apoiar sua evolução.</p>
+            <small>Doação opcional · clique no QR para ampliar</small>
+          </div>
+        </div>
+      </section>
     </aside>
 
     <section class="pane log-dock">
