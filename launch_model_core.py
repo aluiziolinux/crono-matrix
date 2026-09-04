@@ -64,17 +64,52 @@ LLAMA_FIT_PARAMS = os.environ.get(
     "CRONO_LLAMA_FIT_PARAMS", str(Path(LLAMA_SERVER).with_name("llama-fit-params"))
 )
 _LOCAL_GGUF_PY_DIR = _LOCAL_LLAMA_CPP / "gguf-py"
-_CONFIGURED_GGUF_PY_DIR = Path(
-    os.environ.get("CRONO_GGUF_PY_DIR", str(_LOCAL_GGUF_PY_DIR))
-).expanduser()
-# Sessões gráficas podem herdar uma variável antiga. Um override inexistente
-# nunca deve desativar o leitor pertencente ao llama.cpp local deste projeto.
-GGUF_PY_DIR = str(
-    _CONFIGURED_GGUF_PY_DIR
-    if (_CONFIGURED_GGUF_PY_DIR / "gguf" / "__init__.py").is_file()
-    else _LOCAL_GGUF_PY_DIR
-)
-if Path(GGUF_PY_DIR, "gguf", "__init__.py").is_file() and GGUF_PY_DIR not in sys.path:
+
+
+def _valid_gguf_py_dir(path: Path) -> bool:
+    return (path / "gguf" / "__init__.py").is_file()
+
+
+def resolve_gguf_py_dir(llama_cpp_dir: str | Path = "") -> str:
+    """Localiza o ``gguf-py`` pertencente ao checkout selecionado.
+
+    O produto não inclui uma cópia do llama.cpp. Por isso o diretório escolhido
+    nas interfaces é a fonte primária, inclusive quando o usuário aponta para
+    o projeto pai, para um build ou diretamente para ``llama-server``.
+    ``CRONO_GGUF_PY_DIR`` continua disponível como override explícito.
+    """
+    candidates: list[Path] = []
+    configured = os.environ.get("CRONO_GGUF_PY_DIR", "").strip()
+    if configured:
+        candidates.append(Path(configured).expanduser())
+
+    if llama_cpp_dir:
+        selected = Path(llama_cpp_dir).expanduser()
+        if selected.is_file() or selected.name == "llama-server":
+            selected = selected.parent
+        lineage = [selected, *list(selected.parents)[:5]]
+        for base in lineage:
+            candidates.append(base / "gguf-py")
+            candidates.append(base / "llama.cpp" / "gguf-py")
+
+    candidates.extend((_LOCAL_GGUF_PY_DIR, _PROJECT_ROOT.parent / "llama.cpp" / "gguf-py"))
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate.absolute()
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _valid_gguf_py_dir(resolved):
+            return key
+    return ""
+
+
+GGUF_PY_DIR = resolve_gguf_py_dir(_LOCAL_LLAMA_CPP)
+if GGUF_PY_DIR and GGUF_PY_DIR not in sys.path:
     sys.path.insert(0, GGUF_PY_DIR)
 MEDIA_PATH = os.environ.get(
     "CRONO_MEDIA_PATH",
@@ -115,6 +150,29 @@ SPECULATIVE_TYPES = (
 
 _GGUF_READER_PATCHED = False
 _METADATA_GGUF_READER_CLASS = None
+
+
+def configure_gguf_py_dir(llama_cpp_dir: str | Path = "") -> str:
+    """Ativa o leitor GGUF do checkout em uso e invalida caches antigos."""
+    global GGUF_PY_DIR, _GGUF_READER_PATCHED, _METADATA_GGUF_READER_CLASS
+    resolved = resolve_gguf_py_dir(llama_cpp_dir)
+    if resolved == GGUF_PY_DIR:
+        if resolved and resolved not in sys.path:
+            sys.path.insert(0, resolved)
+        return resolved
+
+    previous = GGUF_PY_DIR
+    GGUF_PY_DIR = resolved
+    if previous and previous in sys.path:
+        sys.path.remove(previous)
+    if resolved and resolved not in sys.path:
+        sys.path.insert(0, resolved)
+    for module_name in tuple(sys.modules):
+        if module_name == "gguf" or module_name.startswith("gguf."):
+            del sys.modules[module_name]
+    _GGUF_READER_PATCHED = False
+    _METADATA_GGUF_READER_CLASS = None
+    return resolved
 
 
 def _server_supports_flag(server_path: str, flag: str) -> bool:

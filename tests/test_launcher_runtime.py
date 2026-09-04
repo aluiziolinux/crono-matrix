@@ -13,7 +13,7 @@ from jinja2 import Environment, FileSystemLoader
 from autotune_cache import AutotuneCache
 from launch_model_core import (
     HardwareInfo, ModelMetadata, OptimalParams, _find_companion,
-    _is_auxiliary_gguf,
+    _is_auxiliary_gguf, resolve_gguf_py_dir,
 )
 from web.services import EvalRunner, LauncherWebState, _resolve_node_runtime
 
@@ -524,6 +524,39 @@ class LauncherRuntimeTests(unittest.TestCase):
             self.assertEqual(
                 fit_params, str((portable_dir / "llama-fit-params").resolve())
             )
+
+    def test_gguf_py_follows_selected_source_project_or_binary(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(
+            os.environ, {"CRONO_GGUF_PY_DIR": ""}
+        ):
+            project = Path(temporary) / "launcher"
+            source = project / "llama.cpp"
+            package = source / "gguf-py" / "gguf"
+            binary = source / "build-crono" / "bin" / "llama-server"
+            package.mkdir(parents=True)
+            binary.parent.mkdir(parents=True)
+            (package / "__init__.py").write_text("", encoding="utf-8")
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            expected = str((source / "gguf-py").resolve())
+            self.assertEqual(resolve_gguf_py_dir(project), expected)
+            self.assertEqual(resolve_gguf_py_dir(source), expected)
+            self.assertEqual(resolve_gguf_py_dir(binary), expected)
+
+    def test_launcher_state_configures_gguf_reader_from_selected_llama(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch(
+            "web.services.configure_gguf_py_dir",
+            return_value="/selected/llama.cpp/gguf-py",
+        ) as configure_reader:
+            root = Path(temporary)
+            state = LauncherWebState(
+                llama_cpp_dir=str(root / "llama.cpp"),
+                models_dir=str(root / "models"),
+                settings_file=root / "settings.json",
+            )
+
+            configure_reader.assert_called_once_with(state.llama_cpp_dir)
+            self.assertEqual(state.gguf_py_dir, "/selected/llama.cpp/gguf-py")
 
     def test_shared_mmproj_requires_matching_model_family(self):
         with tempfile.TemporaryDirectory() as temporary:

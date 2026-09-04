@@ -33,6 +33,7 @@ from launch_model_core import (
     ModelMetadata,
     OptimalParams,
     SPECULATIVE_TYPES,
+    configure_gguf_py_dir,
     _server_lazy_mode_flag,
     _server_supports_flag,
     _gguf_total_size,
@@ -243,6 +244,7 @@ class LauncherWebState:
         self.llama_cpp_dir, self.llama_server, self.llama_fit_params = (
             self._resolve_llama_cpp(configured_llama_dir, require=False)
         )
+        self.gguf_py_dir = configure_gguf_py_dir(self.llama_cpp_dir)
         self.mcp_native_default = str(settings.get("mcp_native", "y")).lower()
         if self.mcp_native_default not in {"y", "n"}:
             self.mcp_native_default = "y"
@@ -680,6 +682,7 @@ class LauncherWebState:
             if self.is_running():
                 raise ValueError("Encerre o servidor antes de alterar os caminhos.")
         llama_dir, server, fit_params = self._resolve_llama_cpp(llama_cpp_dir)
+        gguf_py_dir = configure_gguf_py_dir(llama_dir)
         models_root = Path(models_dir).expanduser().resolve()
         if not models_root.is_dir():
             raise ValueError(f"Diretorio de modelos nao encontrado: {models_root}")
@@ -687,6 +690,7 @@ class LauncherWebState:
             self.llama_cpp_dir = llama_dir
             self.llama_server = server
             self.llama_fit_params = fit_params
+            self.gguf_py_dir = gguf_py_dir
             self.models_dir = str(models_root)
             if self.model_path and Path(self.model_path).parent != models_root \
                     and models_root not in Path(self.model_path).parents:
@@ -705,6 +709,7 @@ class LauncherWebState:
                 "llama_cpp_dir": self.llama_cpp_dir,
                 "llama_server": self.llama_server,
                 "llama_fit_params": self.llama_fit_params,
+                "gguf_py_dir": self.gguf_py_dir,
                 "models_dir": self.models_dir,
             }
 
@@ -1430,7 +1435,11 @@ class LauncherWebState:
             if error_kind == "dependency":
                 msg = f"Dependencia ausente do gguf-py. Execute: pip install -r requirements-web.txt"
             elif error_kind == "gguf_library":
-                msg = f"Biblioteca gguf-py nao encontrada. Verifique CRONO_GGUF_PY_DIR."
+                msg = (
+                    "Biblioteca gguf-py nao encontrada no llama.cpp selecionado. "
+                    "Aponte para um checkout completo ou execute "
+                    "scripts/bootstrap_llama_cpp.sh."
+                )
             raise ValueError(msg)
         if meta.quant_error:
             raise ValueError(meta.quant_error)
