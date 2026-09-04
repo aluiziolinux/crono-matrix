@@ -1,9 +1,10 @@
 import unittest
+from unittest import mock
 
 from launch_model_core import SPECULATIVE_TYPES
 from launch_model_ctk import (
     CronoDesktop, adaptive_window_metrics, decoration_geometry_pulse,
-    memory_guard_view, vram_plan_action,
+    format_bytes, hf_download_view, memory_guard_view, vram_plan_action,
 )
 
 
@@ -81,6 +82,66 @@ class AdaptiveDesktopGeometryTests(unittest.TestCase):
 
     def test_invalid_decoration_geometry_is_ignored(self):
         self.assertIsNone(decoration_geometry_pulse("zoomed"))
+
+    def test_hugging_face_download_progress_is_bounded_and_formatted(self):
+        view = hf_download_view({
+            "state": "running", "downloaded": 3 * 1024**3,
+            "total": 6 * 1024**3, "speed": 24 * 1024**2,
+            "filename": "model-Q6_K.gguf",
+        })
+        self.assertEqual(view["state"], "running")
+        self.assertEqual(view["progress"], 0.5)
+        self.assertEqual(view["percent"], 50.0)
+        self.assertEqual(format_bytes(view["speed"]), "24.0 MiB")
+
+    def test_hugging_face_download_handles_unknown_total(self):
+        view = hf_download_view({"state": "running", "downloaded": 4096})
+        self.assertEqual(view["progress"], 0.0)
+        self.assertEqual(view["label"], "BAIXANDO")
+
+    def test_hugging_face_download_never_exceeds_full_progress(self):
+        view = hf_download_view({"state": "done", "downloaded": 12, "total": 10})
+        self.assertEqual(view["progress"], 1.0)
+        self.assertEqual(view["label"], "CONCLUÍDO")
+
+    def test_radar_selection_requests_real_repository_details(self):
+        desktop = CronoDesktop.__new__(CronoDesktop)
+        desktop.backend = mock.Mock()
+        desktop.backend.hf_details.return_value = {"repo_id": "owner/model", "files": []}
+        desktop.hf_file_var = mock.Mock()
+        desktop.hf_detail_title = mock.Mock()
+        desktop.hf_detail_meta = mock.Mock()
+        desktop.hf_download_button = mock.Mock()
+        desktop._render_hf_detail = mock.Mock()
+        desktop._set_status = mock.Mock()
+        desktop._run_task = lambda action, done, _status: done(action())
+
+        CronoDesktop._open_radar_model(desktop, "owner/model")
+
+        desktop.backend.hf_details.assert_called_once_with("owner/model")
+        desktop._render_hf_detail.assert_called_once_with(
+            {"repo_id": "owner/model", "files": []}
+        )
+
+    def test_selected_gguf_starts_backend_download(self):
+        desktop = CronoDesktop.__new__(CronoDesktop)
+        desktop.backend = mock.Mock(models_dir="/models")
+        desktop.backend.start_download.return_value = {
+            "state": "running", "filename": "model-Q6_K.gguf",
+            "downloaded": 0, "total": 1024,
+        }
+        desktop._radar_selected_repo = "owner/model-GGUF"
+        desktop.hf_file_var = mock.Mock()
+        desktop.hf_file_var.get.return_value = "model-Q6_K.gguf"
+        desktop._render_hf_download = mock.Mock()
+        desktop._set_status = mock.Mock()
+
+        CronoDesktop._start_hf_download(desktop)
+
+        desktop.backend.start_download.assert_called_once_with(
+            "owner/model-GGUF", "model-Q6_K.gguf"
+        )
+        desktop._render_hf_download.assert_called_once()
 
 
 if __name__ == "__main__":

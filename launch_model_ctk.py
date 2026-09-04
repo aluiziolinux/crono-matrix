@@ -59,6 +59,51 @@ def human_size(size: float) -> str:
     return f"{size:.2f} GiB"
 
 
+def format_bytes(size: Any) -> str:
+    try:
+        value = max(float(size or 0), 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024.0 or unit == "TiB":
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+    return "0.0 B"
+
+
+def hf_download_view(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    """Normaliza o estado compartilhado de download para as duas UIs."""
+    source = snapshot if isinstance(snapshot, dict) else {}
+    state = str(source.get("state") or "idle").lower()
+    try:
+        downloaded = max(int(source.get("downloaded") or 0), 0)
+        total = max(int(source.get("total") or 0), 0)
+        speed = max(float(source.get("speed") or 0), 0.0)
+    except (TypeError, ValueError):
+        downloaded, total, speed = 0, 0, 0.0
+    progress = min(downloaded / total, 1.0) if total else 0.0
+    labels = {
+        "idle": "Aguardando seleção",
+        "running": "BAIXANDO",
+        "cancelling": "CANCELANDO",
+        "cancelled": "CANCELADO",
+        "done": "CONCLUÍDO",
+        "error": "ERRO",
+    }
+    return {
+        "state": state,
+        "label": labels.get(state, state.upper()),
+        "filename": str(source.get("filename") or ""),
+        "downloaded": downloaded,
+        "total": total,
+        "speed": speed,
+        "progress": progress,
+        "percent": progress * 100.0,
+        "error": str(source.get("error") or ""),
+        "paths": list(source.get("paths") or []),
+    }
+
+
 def compact_int(value: Any) -> str:
     try:
         return f"{int(value):,}".replace(",", ".")
@@ -202,6 +247,9 @@ class CronoDesktop(ctk.CTk):
         self._last_eval_render = ""
         self._last_eval_dashboard_render: tuple[Any, ...] | None = None
         self._last_radar_render = ""
+        self._last_download_render = ""
+        self._download_completion_seen = ""
+        self._radar_selected_repo = ""
         self._last_snn_render = ""
         self._donation_qr_thumb = None
         self._donation_qr_dialog = None
@@ -1134,8 +1182,65 @@ class CronoDesktop(ctk.CTk):
             hover_color=BORDER, command=self._mark_radar_read,
         ).pack(side="left", padx=6)
 
+        detail_card = self._card(body)
+        detail_card.grid(row=2, column=0, padx=8, pady=6, sticky="ew")
+        detail_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            detail_card, text="SELEÇÃO E DOWNLOAD", text_color=CYAN, font=MONO,
+        ).grid(row=0, column=0, padx=14, pady=(10, 2), sticky="w")
+        self.hf_detail_title = ctk.CTkLabel(
+            detail_card,
+            text="Escolha DETALHES em um lançamento para listar seus GGUFs.",
+            text_color=TEXT, font=ctk.CTkFont(size=12, weight="bold"),
+            anchor="w", justify="left", wraplength=1050,
+        )
+        self.hf_detail_title.grid(row=1, column=0, padx=14, pady=(2, 0), sticky="ew")
+        self.hf_detail_meta = ctk.CTkLabel(
+            detail_card, text="Nenhum download é iniciado sem sua confirmação.",
+            text_color=MUTED, font=ctk.CTkFont(size=10), anchor="w", justify="left",
+        )
+        self.hf_detail_meta.grid(row=2, column=0, padx=14, pady=(2, 5), sticky="ew")
+        self.hf_file_var = ctk.StringVar(value="")
+        self.hf_file_list = ctk.CTkScrollableFrame(
+            detail_card, height=155, fg_color=BG, corner_radius=8,
+            border_width=1, border_color=BORDER,
+        )
+        self.hf_file_list.grid(row=3, column=0, padx=14, pady=5, sticky="ew")
+        self.hf_file_list.grid_columnconfigure(0, weight=1)
+        self.hf_file_empty = ctk.CTkLabel(
+            self.hf_file_list, text="Nenhum repositório selecionado.",
+            text_color=MUTED, font=ctk.CTkFont(size=10),
+        )
+        self.hf_file_empty.grid(row=0, column=0, padx=10, pady=18, sticky="w")
+
+        download_row = ctk.CTkFrame(detail_card, fg_color="transparent")
+        download_row.grid(row=4, column=0, padx=14, pady=(5, 2), sticky="ew")
+        download_row.grid_columnconfigure(2, weight=1)
+        self.hf_download_button = ctk.CTkButton(
+            download_row, text="↓  BAIXAR GGUF SELECIONADO", height=34,
+            fg_color=GREEN_DARK, hover_color=GREEN_HOVER,
+            state="disabled", command=self._start_hf_download,
+        )
+        self.hf_download_button.grid(row=0, column=0, padx=(0, 6), sticky="w")
+        self.hf_cancel_button = ctk.CTkButton(
+            download_row, text="CANCELAR", width=100, height=34,
+            fg_color="#58232b", hover_color="#8a3040", text_color="#ffb1ba",
+            state="disabled", command=self._cancel_hf_download,
+        )
+        self.hf_cancel_button.grid(row=0, column=1, padx=6, sticky="w")
+        self.hf_download_status = ctk.CTkLabel(
+            download_row, text="Aguardando seleção", text_color=MUTED,
+            font=ctk.CTkFont(size=10), anchor="e",
+        )
+        self.hf_download_status.grid(row=0, column=2, padx=(8, 0), sticky="e")
+        self.hf_download_progress = ctk.CTkProgressBar(
+            detail_card, height=7, progress_color=GREEN, fg_color=CARD_ALT,
+        )
+        self.hf_download_progress.grid(row=5, column=0, padx=14, pady=(3, 12), sticky="ew")
+        self.hf_download_progress.set(0)
+
         settings_card = self._card(body)
-        settings_card.grid(row=2, column=0, padx=8, pady=6, sticky="ew")
+        settings_card.grid(row=3, column=0, padx=8, pady=6, sticky="ew")
         settings_card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(settings_card, text="PREFERÊNCIAS DO RADAR", text_color=CYAN, font=MONO).grid(
             row=0, column=0, columnspan=2, padx=14, pady=(10, 4), sticky="w"
@@ -1184,6 +1289,120 @@ class CronoDesktop(ctk.CTk):
 
     def _radar_prefs_changed(self) -> None:
         self._save_radar_prefs()
+
+    def _open_radar_model(self, repo_id: str) -> None:
+        if not repo_id or "/" not in repo_id:
+            self._set_status("Repositório Hugging Face inválido.", error=True)
+            return
+        self._radar_selected_repo = repo_id
+        self.hf_file_var.set("")
+        self.hf_detail_title.configure(text=repo_id)
+        self.hf_detail_meta.configure(text="Consultando arquivos GGUF e metadados…", text_color=MUTED)
+        self.hf_download_button.configure(state="disabled")
+        self._run_task(
+            lambda: self.backend.hf_details(repo_id),
+            self._render_hf_detail,
+            f"Consultando {repo_id}…",
+        )
+
+    def _render_hf_detail(self, detail: dict) -> None:
+        for child in self.hf_file_list.winfo_children():
+            child.destroy()
+        repo_id = str(detail.get("repo_id") or self._radar_selected_repo)
+        original = str(detail.get("original") or repo_id)
+        self._radar_selected_repo = repo_id
+        self.hf_detail_title.configure(text=repo_id)
+        meta = detail.get("meta") if isinstance(detail.get("meta"), dict) else {}
+        arch = str(meta.get("architecture") or "arquitetura não informada").upper()
+        context = compact_int(meta.get("context_length") or 0)
+        params = compact_int(meta.get("total") or 0)
+        conversion = f"Conversão GGUF de {original}  ·  " if original != repo_id else ""
+        self.hf_detail_meta.configure(
+            text=f"{conversion}{arch}  ·  contexto {context}  ·  parâmetros {params}",
+            text_color=MUTED,
+        )
+        files = detail.get("files") if isinstance(detail.get("files"), list) else []
+        self.hf_file_var.set("")
+        for row, item in enumerate(files):
+            filename = str(item.get("name") or "")
+            label = str(item.get("label") or Path(filename).stem)
+            parts = max(int(item.get("parts") or 1), 1)
+            size = format_bytes(item.get("size") or 0) if item.get("size") else "tamanho N/D"
+            suffix = f"  ·  {parts} partes" if parts > 1 else ""
+            ctk.CTkRadioButton(
+                self.hf_file_list,
+                text=f"{label}  ·  {size}{suffix}",
+                variable=self.hf_file_var, value=filename,
+                text_color=TEXT, fg_color=GREEN_DARK, hover_color=GREEN,
+                font=ctk.CTkFont(family="DejaVu Sans Mono", size=10),
+                command=self._hf_file_selected,
+            ).grid(row=row, column=0, padx=10, pady=6, sticky="w")
+        if not files:
+            ctk.CTkLabel(
+                self.hf_file_list,
+                text="Nenhuma conversão GGUF exata foi localizada para este modelo.",
+                text_color=AMBER, font=ctk.CTkFont(size=10),
+            ).grid(row=0, column=0, padx=10, pady=18, sticky="w")
+        self._hf_file_selected()
+        self._set_status(f"{len(files)} opção(ões) GGUF em {repo_id}")
+
+    def _hf_file_selected(self) -> None:
+        state = hf_download_view(self.backend.download_snapshot())["state"]
+        enabled = bool(self.hf_file_var.get()) and state not in {"running", "cancelling"}
+        self.hf_download_button.configure(state="normal" if enabled else "disabled")
+
+    def _start_hf_download(self) -> None:
+        repo_id = self._radar_selected_repo
+        filename = self.hf_file_var.get()
+        if not repo_id or not filename:
+            self._set_status("Selecione um arquivo GGUF antes de baixar.", error=True)
+            return
+        try:
+            snapshot = self.backend.start_download(repo_id, filename)
+        except Exception as exc:
+            self._set_status(str(exc), error=True)
+            messagebox.showerror("Download Hugging Face", str(exc), parent=self)
+            return
+        self._download_completion_seen = ""
+        self._render_hf_download(snapshot)
+        self._set_status(f"Baixando {filename} para {self.backend.models_dir}…")
+
+    def _cancel_hf_download(self) -> None:
+        self._render_hf_download(self.backend.cancel_download())
+        self._set_status("Cancelando download…")
+
+    def _render_hf_download(self, snapshot: dict) -> None:
+        view = hf_download_view(snapshot)
+        state = view["state"]
+        self.hf_download_progress.set(view["progress"])
+        if state in {"running", "cancelling"}:
+            detail = (
+                f"{view['percent']:.1f}%  ·  {format_bytes(view['downloaded'])} / "
+                f"{format_bytes(view['total'])}  ·  {format_bytes(view['speed'])}/s"
+            )
+            self.hf_download_status.configure(text=f"{view['label']}  {detail}", text_color=CYAN)
+            self.hf_download_button.configure(state="disabled")
+            self.hf_cancel_button.configure(state="normal" if state == "running" else "disabled")
+        elif state == "done":
+            self.hf_download_status.configure(
+                text=f"CONCLUÍDO  ·  {format_bytes(view['downloaded'])}", text_color=GREEN,
+            )
+            self.hf_cancel_button.configure(state="disabled")
+            self._hf_file_selected()
+            completion_key = repr(view["paths"])
+            if completion_key and completion_key != self._download_completion_seen:
+                self._download_completion_seen = completion_key
+                self._render_models(self.backend.models_snapshot())
+                self._set_status("Download verificado e modelo adicionado à biblioteca local.")
+        elif state in {"error", "cancelled"}:
+            message = view["error"] or view["label"]
+            self.hf_download_status.configure(text=message, text_color=RED if state == "error" else AMBER)
+            self.hf_cancel_button.configure(state="disabled")
+            self._hf_file_selected()
+        else:
+            self.hf_download_status.configure(text=view["label"], text_color=MUTED)
+            self.hf_cancel_button.configure(state="disabled")
+            self._hf_file_selected()
 
     def _render_radar_snapshot(self, radar: dict) -> None:
         last_refresh = radar.get("last_refresh", "")
@@ -1244,6 +1463,12 @@ class CronoDesktop(ctk.CTk):
                 frame, text=info_text, text_color=TEXT if unread else MUTED,
                 font=ctk.CTkFont(size=11), anchor="w",
             ).grid(row=0, column=1, padx=8, pady=6, sticky="ew")
+            ctk.CTkButton(
+                frame, text="DETALHES  →", width=100, height=28,
+                fg_color=GREEN_DARK if unread else CARD_ALT,
+                hover_color=GREEN_HOVER, text_color=TEXT,
+                command=lambda selected=repo_id: self._open_radar_model(selected),
+            ).grid(row=0, column=2, padx=8, pady=5, sticky="e")
 
         if error:
             ctk.CTkLabel(
@@ -1609,6 +1834,14 @@ class CronoDesktop(ctk.CTk):
             if radar_snap.get("initialized") and radar_key != self._last_radar_render:
                 self._last_radar_render = radar_key
                 self._render_radar_snapshot(radar_snap)
+        except Exception:
+            pass
+        try:
+            download_snap = self.backend.download_snapshot()
+            download_key = repr(download_snap)
+            if download_key != self._last_download_render:
+                self._last_download_render = download_key
+                self._render_hf_download(download_snap)
         except Exception:
             pass
         if BUNDLED_MCP_AVAILABLE:
