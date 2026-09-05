@@ -8,7 +8,8 @@ QR exibido nas interfaces Web e CustomTkinter.
 
 ## Antes de confirmar
 
-- confira no aplicativo bancário se o destinatário exibido é `aluiziolinux`;
+- confira o nome do destinatário exibido pelo aplicativo bancário e só confirme
+  se reconhecer o beneficiário; o nome bancário pode diferir do usuário GitHub;
 - confira o valor antes de autorizar a transação;
 - nunca informe senha, token, código de autenticação ou chave privada;
 - uma doação não compra suporte, garantia ou prioridade;

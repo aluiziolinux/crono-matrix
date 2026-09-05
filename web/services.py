@@ -638,6 +638,39 @@ class LauncherWebState:
         return dict(snapshot)
 
     @staticmethod
+    def _llama_build_usable(server: Path) -> tuple[bool, str]:
+        """Confirm that a build can start and includes its matching fit tool.
+
+        Merely checking executable bits is insufficient for CMake build trees:
+        an executable may remain after its shared libraries were moved or
+        deleted.  Selecting such a tree made the UI calculate with one build
+        and then fail at launch with exit 127.  ``--version`` does not load a
+        model, but it does exercise the dynamic loader and CUDA backend setup.
+        """
+        fit_params = server.with_name("llama-fit-params")
+        for binary in (server, fit_params):
+            if not binary.is_file() or not os.access(binary, os.X_OK):
+                return False, f"ausente ou não executável: {binary}"
+            try:
+                completed = subprocess.run(
+                    [str(binary), "--version"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                return False, f"{binary}: {exc}"
+            if completed.returncode != 0:
+                detail = " ".join(completed.stdout.strip().splitlines()[-2:])
+                return False, (
+                    f"{binary}: código {completed.returncode}"
+                    + (f" — {detail}" if detail else "")
+                )
+        return True, ""
+
+    @staticmethod
     def _resolve_llama_cpp(value: str, require: bool = True) -> tuple[str, str, str]:
         selected = Path(value).expanduser().resolve()
         if selected.is_file() or selected.name == "llama-server":
@@ -654,7 +687,17 @@ class LauncherWebState:
                 selected / "llama-server",
             ]
             display_dir = selected
-        server = next((path for path in candidates if path.is_file()), candidates[0])
+        existing = [path for path in candidates if path.is_file()]
+        rejected: list[str] = []
+        server = None
+        for candidate in existing:
+            usable, detail = LauncherWebState._llama_build_usable(candidate)
+            if usable:
+                server = candidate
+                break
+            rejected.append(detail)
+        if server is None:
+            server = existing[0] if existing else candidates[0]
         fit_params = server.with_name("llama-fit-params")
         if require:
             if not selected.exists():
@@ -668,6 +711,13 @@ class LauncherWebState:
                 raise ValueError(f"llama-server sem permissao de execucao: {server}")
             if not fit_params.is_file() or not os.access(fit_params, os.X_OK):
                 raise ValueError(f"llama-fit-params nao encontrado ou nao executavel: {fit_params}")
+            usable, detail = LauncherWebState._llama_build_usable(server)
+            if not usable:
+                diagnostics = "; ".join(item for item in rejected if item)
+                raise ValueError(
+                    "Nenhuma compilação utilizável do llama.cpp foi encontrada. "
+                    + (diagnostics or detail)
+                )
         return str(display_dir), str(server), str(fit_params)
 
     def _new_optimal_params(self, meta: ModelMetadata) -> OptimalParams:
@@ -2415,6 +2465,16 @@ class LauncherWebState:
             compact = min(context - 512, max(1024, int(context * 0.8)))
         return context, compact
 
+    def _agent_native_context(self) -> int:
+        """Native GGUF limit, never the requested/extended runtime window.
+
+        Zero denotes unknown: ModelMetadata's initial 4096 is not evidence.
+        """
+        meta = getattr(self, "meta", None)
+        return max(int(getattr(meta, "ctx_max", 0) or 0), 0) if (
+            meta and getattr(meta, "meta_ok", False)
+        ) else 0
+
     def _runtime_agent_capabilities(
         self, final: dict, props: dict, chat_caps: dict,
         generation_settings: dict, reasoning_enabled: bool,
@@ -2435,17 +2495,24 @@ class LauncherWebState:
                 "video": bool(raw_modalities.get("video")),
                 "audio": bool(raw_modalities.get("audio")),
             }
+            modality_source = "runtime_props"
         else:
+            # A valid projector need not contain a vision encoder. Metadata
+            # describes a preview, not proof that the server loaded it. Older
+            # runtimes without modality flags must not inherit the preview.
+            projector_requested = bool(
+                not props
+                and str(final.get("omni", "n")).lower() == "y"
+                and meta and meta.mmproj_file and meta.mmproj_valid
+            )
             media_input = {
                 "image": bool(
-                    str(final.get("omni", "n")).lower() == "y"
-                    and meta
-                    and meta.mmproj_file
-                    and meta.mmproj_valid
+                    projector_requested and meta.mmproj_has_vision
                 ),
                 "video": False,
-                "audio": False,
+                "audio": bool(projector_requested and meta.mmproj_has_audio),
             }
+            modality_source = "gguf_preview" if projector_requested else "unknown"
 
         input_modalities = ["text"] + [
             name for name in ("image", "video", "audio") if media_input[name]
@@ -2494,6 +2561,50 @@ class LauncherWebState:
                 {"field": "reasoning_content"} if interleaved else False
             ),
         }
+        native_context = self._agent_native_context()
+        capabilities["evidence"] = {
+            "input_modalities": modality_source,
+            "native_context_window": "gguf" if native_context else "unknown",
+            "tool_call": "runtime_template" if "supports_tool_calls" in chat_caps else "unknown",
+        }
+        capabilities["model"] = {
+            "architecture": str(getattr(meta, "arch", "") or ""),
+            "native_context_window": native_context,
+            "projector": {
+                "available": bool(
+                    meta and meta.mmproj_file and meta.mmproj_valid
+                ),
+                "vision": bool(
+                    getattr(meta, "mmproj_has_vision", False)
+                ),
+                "audio_input": bool(
+                    getattr(meta, "mmproj_has_audio", False)
+                ),
+                "audio_output": bool(
+                    getattr(meta, "mmproj_has_gen_audio", False)
+                    or getattr(meta, "vocoder_file", "")
+                ),
+                "tensor_count": int(
+                    getattr(meta, "mmproj_tensor_count", 0) or 0
+                ),
+            },
+        }
+        capabilities["runtime"] = {
+            "context_window": int(
+                generation_settings.get("n_ctx")
+                or final.get("ctx", 0)
+                or 0
+            ),
+            "input": dict(media_input),
+        }
+        supports_reasoning_budget = bool(
+            reasoning_enabled
+            and (
+                template_caps["supports_preserve_reasoning"]
+                or template_caps["supports_reasoning_effort"]
+                or "<think" in str(props.get("chat_template") or "").lower()
+            )
+        )
         server_capabilities = {
             "jinja": bool(props.get("chat_template")),
             "tools_requested": tools_requested,
@@ -2519,12 +2630,18 @@ class LauncherWebState:
                 ) or ""
             ),
             "reasoning_budget_tokens": int(
-                final.get("reasoning_budget", -1) or -1
+                final.get("reasoning_budget", -1)
+                if final.get("reasoning_budget") is not None else -1
             ),
+            "supports_reasoning_budget": supports_reasoning_budget,
             "default_generation_settings": generation_settings,
             "chat_template": {
                 "available": bool(props.get("chat_template")),
-                "tool_use_available": bool(props.get("chat_template_tool_use")),
+                "tool_use_available": bool(
+                    props.get("chat_template_tool_use")
+                    or template_caps["supports_tools"]
+                    or template_caps["supports_tool_calls"]
+                ),
             },
             "media_marker": str(props.get("media_marker") or ""),
             "bos_token": str(props.get("bos_token") or ""),
@@ -2616,6 +2733,7 @@ class LauncherWebState:
                 "truncation_policy": {"mode": "tokens", "limit": context_window},
                 "context_window": context_window,
                 "max_context_window": context_window,
+                "native_context_window": self._agent_native_context(),
                 "max_output_tokens": context_window,
                 "auto_compact_token_limit": compact_limit,
                 "effective_context_window_percent": 95,
@@ -2683,6 +2801,12 @@ class LauncherWebState:
                 "chat_template_available": bool(props.get("chat_template")),
                 "chat_template_tool_use_available": bool(
                     props.get("chat_template_tool_use")
+                    or dict(props.get("chat_template_caps") or {}).get(
+                        "supports_tools"
+                    )
+                    or dict(props.get("chat_template_caps") or {}).get(
+                        "supports_tool_calls"
+                    )
                 ),
                 "chat_template_caps": props.get("chat_template_caps", {}),
                 "endpoint_slots": bool(props.get("endpoint_slots", False)),
@@ -2706,6 +2830,7 @@ class LauncherWebState:
             f"export CRONO_PROPS_URL={shlex.quote(endpoints['props'])}",
             f"export CRONO_TOOLS_URL={shlex.quote(endpoints['tools'])}",
             f"export CRONO_CONTEXT_WINDOW={shlex.quote(str(context_window))}",
+            f"export CRONO_NATIVE_CONTEXT_WINDOW={shlex.quote(str(self._agent_native_context()))}",
             f"export CRONO_MAX_OUTPUT_TOKENS={shlex.quote(str(context_window))}",
             f"export CRONO_AUTO_COMPACT_TOKEN_LIMIT={shlex.quote(str(compact_limit))}",
             f"export CRONO_INPUT_MODALITIES={shlex.quote(','.join(modalities))}",
@@ -2728,6 +2853,7 @@ class LauncherWebState:
             "model": model_id,
             "context_window": context_window,
             "max_context_window": context_window,
+            "native_context_window": self._agent_native_context(),
             "max_output_tokens": context_window,
             "auto_compact_token_limit": compact_limit,
             "reasoning_enabled": reasoning_enabled,
@@ -2748,9 +2874,13 @@ class LauncherWebState:
                 "default_effort": "server" if reasoning_enabled else "off",
                 "budget_field": "thinking_budget_tokens" if reasoning_enabled else "",
                 "supports_effort": bool(
-                    server_capabilities.get("template", {}).get(
+                    server_capabilities.get("supports_reasoning_budget", False)
+                    or server_capabilities.get("template", {}).get(
                         "supports_reasoning_effort", False
                     )
+                ),
+                "supports_budget": bool(
+                    server_capabilities.get("supports_reasoning_budget", False)
                 ),
             },
             "client_compaction": {
@@ -3229,13 +3359,14 @@ class LauncherWebState:
         if not model_id:
             raise ValueError("Nao foi possivel determinar o model id para o agente local.")
 
+        generation_settings = dict(props.get("default_generation_settings") or {})
+        runtime_context = generation_settings.get("n_ctx") or effective_context
         context_window, compact_limit = self._agent_context_policy(
-            int(effective_context or final.get("ctx", 262144) or 262144)
+            int(runtime_context or final.get("ctx") or self._agent_native_context() or 1)
         )
         requested_reasoning = str(final.get("reasoning", "auto")).lower()
         reasoning_enabled = requested_reasoning != "off"
         chat_caps = dict(props.get("chat_template_caps") or {})
-        generation_settings = dict(props.get("default_generation_settings") or {})
         runtime_params = generation_settings.get("params")
         if not isinstance(runtime_params, dict):
             runtime_params = generation_settings
@@ -3263,6 +3394,10 @@ class LauncherWebState:
             self._runtime_agent_capabilities(
                 final, props, chat_caps, generation_settings, reasoning_enabled
             )
+        )
+        capabilities["runtime"]["context_window"] = context_window
+        capabilities["evidence"]["context_window"] = (
+            "runtime" if runtime_context else "configured_preview"
         )
         server_capabilities["reasoning_detection"] = {
             "requested": requested_reasoning,
@@ -3308,7 +3443,11 @@ class LauncherWebState:
             reasoning_enabled=reasoning_enabled,
         )
         supports_reasoning_effort = bool(
-            reasoning_enabled and chat_caps.get("supports_reasoning_effort", False)
+            reasoning_enabled
+            and (
+                chat_caps.get("supports_reasoning_effort", False)
+                or server_capabilities.get("supports_reasoning_budget", False)
+            )
         )
         agent_env, agent_metadata = self._write_universal_agent_profile(
             agent_endpoint, model_id, context_window, compact_limit, modalities,
@@ -3630,6 +3769,14 @@ class LauncherWebState:
                 raise ValueError("O servidor ja esta em execucao.")
         if not Path(self.llama_server).is_file():
             raise ValueError(f"llama-server nao encontrado: {self.llama_server}")
+        build_usable, build_error = self._llama_build_usable(
+            Path(self.llama_server)
+        )
+        if not build_usable:
+            raise ValueError(
+                "A compilação selecionada do llama.cpp não consegue iniciar: "
+                + build_error
+            )
         try:
             self._ensure_native_memory_guard()
         except OSError as exc:
@@ -3728,7 +3875,8 @@ class LauncherWebState:
                 )
                 self.proc = subprocess.Popen(
                     launch_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1, start_new_session=True, env=server_env,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1,
+                    start_new_session=True, env=server_env,
                 )
                 self.llama_scope_unit = scope_unit
                 self.memory_guard.update({
@@ -3765,7 +3913,8 @@ class LauncherWebState:
                         [gateway_node, str(ASAEL_GATEWAY_ENTRY)],
                         cwd=str(NATIVE_MCP_DIR), env=gateway_env,
                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                        text=True, bufsize=1, start_new_session=True,
+                        text=True, encoding="utf-8", errors="replace", bufsize=1,
+                        start_new_session=True,
                     )
                 except Exception:
                     try:

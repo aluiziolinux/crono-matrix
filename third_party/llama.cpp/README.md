@@ -4,7 +4,7 @@
 - Revisão-base upstream: `d230ddd763ffe27781c7ffd237ea78b639b36b6d`
 - Data da revisão-base: `2026-09-03T23:53:04+02:00`
 - Patch local: `patches/llama.cpp/crono-matrix.patch`
-- SHA-256 do patch: `4193d2f585f5c007742bbd799e39a10e47a57042123c1ada3e625f745b64ee94`
+- SHA-256 do patch: `3a71b9d6d957377556f0c24d29ee46aa561ff54d022fb0d90fa91815a731a22e`
 
 O patch contém tanto os commits locais posteriores/divergentes quanto as
 alterações ainda não consolidadas do checkout de desenvolvimento na data de

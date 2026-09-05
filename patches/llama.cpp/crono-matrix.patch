@@ -1283,6 +1283,51 @@ index 78229756c..c6ef7e38e 100644
  			headers,
  			method: 'POST',
  			signal
+diff --git a/tools/ui/src/lib/stores/agentic/index.svelte.ts b/tools/ui/src/lib/stores/agentic/index.svelte.ts
+index 50db1be0c..0fb0ae544 100644
+--- a/tools/ui/src/lib/stores/agentic/index.svelte.ts
++++ b/tools/ui/src/lib/stores/agentic/index.svelte.ts
+@@ -76,6 +76,7 @@ import type {
+ import {
+ 	executeBrowserInfoTool,
+ 	executeGetDatetimeTool,
++	filterReadMediaToolForAttachedPrompt,
+ 	getAudioInputFormat,
+ 	isAbortError
+ } from '$lib/utils';
+@@ -449,8 +450,10 @@ class AgenticStore {
+ 			updateToolResultMessage
+ 		} = callbacks;
+ 		const sessionMessages: AgenticMessage[] = toAgenticMessages(messages);
++		const initialTurnTools = filterReadMediaToolForAttachedPrompt(messages, tools);
+ 
+ 		let capturedTimings: ChatMessageTimings | undefined;
++		let isInitialLlmTurn = true;
+ 		let totalToolCallCount = 0;
+ 
+ 		const agenticTimings: ChatMessageAgenticTimings = {
+@@ -511,6 +514,7 @@ class AgenticStore {
+ 				toolsMs: 0,
+ 				turn: turn + 1
+ 			};
++			const toolsForThisTurn = isInitialLlmTurn ? initialTurnTools : tools;
+ 
+ 			try {
+ 				await ChatService.sendMessage(
+@@ -578,11 +582,12 @@ class AgenticStore {
+ 							}
+ 						},
+ 						stream: true,
+-						tools: tools.length > 0 ? tools : undefined
++						tools: toolsForThisTurn.length > 0 ? toolsForThisTurn : undefined
+ 					},
+ 					conversationId,
+ 					signal
+ 				);
++				isInitialLlmTurn = false;
+ 
+ 				this.updateSession(conversationId, { streamingToolCall: null });
+ 
 diff --git a/tools/ui/src/lib/stores/chat/index.svelte.ts b/tools/ui/src/lib/stores/chat/index.svelte.ts
 index 296c2cca5..ec8883371 100644
 --- a/tools/ui/src/lib/stores/chat/index.svelte.ts
@@ -1430,8 +1475,79 @@ index 57b77f06c..47e3c99da 100644
  	toolCwd?: string;
  	/** Internal flag marking a UI-generated message (e.g. a cwd change). The row is sent to the model as a "user" turn so chat templates accept it; the flag is only read by the renderer. */
  	isSynthetic?: boolean;
+diff --git a/tools/ui/src/lib/utils/agentic.ts b/tools/ui/src/lib/utils/agentic.ts
+index cd150c5ef..e9463ba1b 100644
+--- a/tools/ui/src/lib/utils/agentic.ts
++++ b/tools/ui/src/lib/utils/agentic.ts
+@@ -9,18 +9,65 @@ import {
+ import {
+ 	AgenticSectionType,
+ 	AttachmentType,
++	BuiltInTool,
++	ContentPartType,
+ 	ContinueIntentKind,
+ 	MessageRole,
+ 	ToolResultKind
+ } from '$lib/enums';
+ import type { AgenticSection, ContinueIntent, ToolResultLine } from '$lib/types/agentic';
+-import type { ApiChatCompletionToolCall } from '$lib/types/api';
++import type {
++	ApiChatCompletionTool,
++	ApiChatCompletionToolCall,
++	ApiChatMessageData
++} from '$lib/types/api';
+ import type {
+ 	DatabaseMessage,
+ 	DatabaseMessageExtra,
+ 	DatabaseMessageExtraImageFile
+ } from '$lib/types/database';
+ 
++const ATTACHED_MEDIA_CONTENT_TYPES = new Set<ContentPartType>([
++	ContentPartType.IMAGE_URL,
++	ContentPartType.INPUT_AUDIO,
++	ContentPartType.INPUT_VIDEO
++]);
++
++/**
++ * Hide the path-based `read_media` tool from the first LLM turn when the
++ * current user prompt already carries inline media. Some multimodal models
++ * otherwise mistake the tool schema for an instruction to request a local
++ * path and ignore the `input_audio` / `image_url` / `input_video` content.
++ *
++ * The caller uses the unfiltered tool list again on later agentic turns, so
++ * reading additional media by path remains available after the model has
++ * consumed the attachment.
++ */
++export function filterReadMediaToolForAttachedPrompt(
++	messages: ApiChatMessageData[],
++	tools: ApiChatCompletionTool[]
++): ApiChatCompletionTool[] {
++	let latestUserMessage: ApiChatMessageData | undefined;
++
++	for (let index = messages.length - 1; index >= 0; index--) {
++		if (messages[index].role === MessageRole.USER) {
++			latestUserMessage = messages[index];
++
++			break;
++		}
++	}
++
++	if (!latestUserMessage || !Array.isArray(latestUserMessage.content)) return tools;
++
++	const hasAttachedMedia = latestUserMessage.content.some((part) =>
++		ATTACHED_MEDIA_CONTENT_TYPES.has(part.type)
++	);
++
++	if (!hasAttachedMedia) return tools;
++
++	return tools.filter((tool) => tool.function.name !== BuiltInTool.BROWSER_READ_MEDIA);
++}
++
+ /**
+  * Derives display sections from a single assistant message and its direct tool results.
+  *
 diff --git a/tools/ui/src/lib/utils/index.ts b/tools/ui/src/lib/utils/index.ts
-index 079cdc871..bd4a14ca9 100644
+index 079cdc871..3d70b54a8 100644
 --- a/tools/ui/src/lib/utils/index.ts
 +++ b/tools/ui/src/lib/utils/index.ts
 @@ -190,6 +190,7 @@ export {
@@ -1442,6 +1558,16 @@ index 079cdc871..bd4a14ca9 100644
  	highlightMatch,
  	type PathQuery
  } from './working-directory';
+@@ -262,7 +263,8 @@ export {
+ 	splitSearchSummaryList,
+ 	hasAgenticContent,
+ 	classifyToolResult,
+-	classifyContinueIntent
++	classifyContinueIntent,
++	filterReadMediaToolForAttachedPrompt
+ } from './agentic';
+ 
+ // Line-level unified diff for tool result rendering (`edit_file` block)
 diff --git a/tools/ui/src/lib/utils/working-directory.ts b/tools/ui/src/lib/utils/working-directory.ts
 index 906142d1c..576130d2e 100644
 --- a/tools/ui/src/lib/utils/working-directory.ts
@@ -1515,6 +1641,79 @@ index 38b656271..dd41db719 100644
  	}
  
  	$effect(() => {
+diff --git a/tools/ui/tests/unit/agentic-attached-media-tools.test.ts b/tools/ui/tests/unit/agentic-attached-media-tools.test.ts
+new file mode 100644
+index 000000000..55ac7ca11
+--- /dev/null
++++ b/tools/ui/tests/unit/agentic-attached-media-tools.test.ts
+@@ -0,0 +1,67 @@
++import { BuiltInTool, ContentPartType, MessageRole } from '$lib/enums';
++import type { ApiChatCompletionTool, ApiChatMessageData } from '$lib/types/api';
++import { filterReadMediaToolForAttachedPrompt } from '$lib/utils/agentic';
++import { describe, expect, it } from 'vitest';
++
++function tool(name: string): ApiChatCompletionTool {
++	return {
++		function: { name, parameters: { type: 'object' } },
++		type: 'function'
++	};
++}
++
++const tools = [tool(BuiltInTool.BROWSER_READ_MEDIA), tool(BuiltInTool.SERVER_GET_INFO)];
++
++describe('filterReadMediaToolForAttachedPrompt', () => {
++	it.each([ContentPartType.INPUT_AUDIO, ContentPartType.IMAGE_URL, ContentPartType.INPUT_VIDEO])(
++		'hides read_media for an inline %s attachment',
++		(type) => {
++			const messages: ApiChatMessageData[] = [
++				{
++					content: [{ type }, { text: 'Describe this media', type: ContentPartType.TEXT }],
++					role: MessageRole.USER
++				}
++			];
++			const filtered = filterReadMediaToolForAttachedPrompt(messages, tools);
++
++			expect(filtered.map((entry) => entry.function.name)).toEqual([BuiltInTool.SERVER_GET_INFO]);
++		}
++	);
++
++	it('keeps read_media for a text-only prompt', () => {
++		const messages: ApiChatMessageData[] = [
++			{ content: 'Read /tmp/example.wav', role: MessageRole.USER }
++		];
++
++		expect(filterReadMediaToolForAttachedPrompt(messages, tools)).toBe(tools);
++	});
++
++	it('only considers media in the latest user prompt', () => {
++		const messages: ApiChatMessageData[] = [
++			{
++				content: [{ type: ContentPartType.INPUT_AUDIO }],
++				role: MessageRole.USER
++			},
++			{ content: 'Earlier answer', role: MessageRole.ASSISTANT },
++			{ content: 'Now read another file by path', role: MessageRole.USER }
++		];
++
++		expect(filterReadMediaToolForAttachedPrompt(messages, tools)).toBe(tools);
++	});
++
++	it('does not mutate the original tool list', () => {
++		const messages: ApiChatMessageData[] = [
++			{
++				content: [{ type: ContentPartType.INPUT_AUDIO }],
++				role: MessageRole.USER
++			}
++		];
++
++		filterReadMediaToolForAttachedPrompt(messages, tools);
++
++		expect(tools.map((entry) => entry.function.name)).toEqual([
++			BuiltInTool.BROWSER_READ_MEDIA,
++			BuiltInTool.SERVER_GET_INFO
++		]);
++	});
++});
 diff --git a/tools/ui/tests/unit/working-directory.test.ts b/tools/ui/tests/unit/working-directory.test.ts
 index 6e9b067cf..089977dce 100644
 --- a/tools/ui/tests/unit/working-directory.test.ts
@@ -1534,21 +1733,21 @@ index 6e9b067cf..089977dce 100644
 +describe('expandWorkingDirectoryHome', () => {
 +	it('expands a selected home-relative directory to an absolute server path', () => {
 +		expect(
-+			expandWorkingDirectoryHome('~/Área de trabalho/codigos', '/home/aluiziolinux')
-+		).toBe('/home/aluiziolinux/Área de trabalho/codigos');
++			expandWorkingDirectoryHome('~/Área de trabalho/codigos', '/home/user')
++		).toBe('/home/user/Área de trabalho/codigos');
 +	});
 +
 +	it('expands the home directory itself', () => {
-+		expect(expandWorkingDirectoryHome('~', '/home/aluiziolinux')).toBe(
-+			'/home/aluiziolinux'
++		expect(expandWorkingDirectoryHome('~', '/home/user')).toBe(
++			'/home/user'
 +		);
 +	});
 +
 +	it('leaves absolute paths and named-user tildes untouched', () => {
-+		expect(expandWorkingDirectoryHome('/srv/project', '/home/aluiziolinux')).toBe(
++		expect(expandWorkingDirectoryHome('/srv/project', '/home/user')).toBe(
 +			'/srv/project'
 +		);
-+		expect(expandWorkingDirectoryHome('~other/project', '/home/aluiziolinux')).toBe(
++		expect(expandWorkingDirectoryHome('~other/project', '/home/user')).toBe(
 +			'~other/project'
 +		);
 +	});

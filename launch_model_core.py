@@ -486,34 +486,74 @@ def _find_companion(
                     has_vision = field_value(
                         fields.get("clip.has_vision_encoder")
                     )
-                    projection = field_value(
-                        fields.get("clip.vision.projection_dim")
+                    has_audio = field_value(
+                        fields.get("clip.has_audio_encoder")
                     )
+                    has_gen_audio = field_value(
+                        fields.get("clip.has_gen_audio_encoder")
+                    )
+                    projections = [
+                        field_value(fields.get("clip.vision.projection_dim")),
+                        field_value(fields.get("clip.audio.projection_dim")),
+                        field_value(fields.get("clip.gen.audio.projection_dim")),
+                    ]
                     try:
                         has_vision = int(has_vision) == 1
                     except (TypeError, ValueError):
-                        has_vision = True
+                        has_vision = False
                     try:
-                        projection = int(projection)
+                        has_audio = int(has_audio) == 1
                     except (TypeError, ValueError):
-                        projection = 0
+                        has_audio = False
+                    try:
+                        has_gen_audio = int(has_gen_audio) == 1
+                    except (TypeError, ValueError):
+                        has_gen_audio = False
+                    projection_values = set()
+                    for projection in projections:
+                        try:
+                            projection_values.add(int(projection))
+                        except (TypeError, ValueError):
+                            continue
                     basename_matches = bool(
                         wanted and basename and normalize(basename) == wanted
                     )
                     dimension_matches = bool(
-                        projection_dim and projection == int(projection_dim)
+                        projection_dim and int(projection_dim) in projection_values
                     )
-                    if kind == "mmproj" and has_vision and (
+                    has_input_encoder = has_vision or has_audio
+                    if kind == "mmproj" and has_input_encoder and (
                         basename_matches or dimension_matches
                     ):
+                        # Prefer a projector that exposes more of an Omni
+                        # model (vision + audio) over a smaller vision-only
+                        # companion with an equally compatible name.  File
+                        # size is only a final tie-breaker; metadata remains
+                        # authoritative.
+                        modality_count = sum((
+                            has_vision, has_audio, has_gen_audio,
+                        ))
+                        directory_rank = (
+                            0
+                            if Path(candidate).resolve().parent == model_dir
+                            else 1
+                        )
                         metadata_matches.append((
-                            0 if basename_matches else 1, candidate,
+                            directory_rank,
+                            -modality_count,
+                            0 if basename_matches else 1,
+                            -os.path.getsize(candidate),
+                            candidate,
                         ))
                 except Exception:
                     continue
             if metadata_matches:
-                metadata_matches.sort(key=lambda item: (item[0], item[1].lower()))
-                return metadata_matches[0][1]
+                metadata_matches.sort(
+                    key=lambda item: (
+                        item[0], item[1], item[2], item[3], item[4].lower()
+                    )
+                )
+                return metadata_matches[0][4]
         except (ImportError, ModuleNotFoundError, AttributeError):
             pass
 
@@ -792,6 +832,10 @@ class ModelMetadata:
         self.mmproj_file    = ""
         self.mmproj_size_mb = 0
         self.mmproj_valid   = False
+        self.mmproj_has_vision = False
+        self.mmproj_has_audio = False
+        self.mmproj_has_gen_audio = False
+        self.mmproj_tensor_count = 0
         self.vocoder_file   = ""
         self.n_layer_nextn  = 0
         self.has_mtp        = False
@@ -1271,30 +1315,74 @@ class ModelMetadata:
                 continue
 
     def _validate_mmproj(self):
+        self.mmproj_valid = False
+        self.mmproj_has_vision = False
+        self.mmproj_has_audio = False
+        self.mmproj_has_gen_audio = False
+        self.mmproj_tensor_count = 0
         try:
             import importlib.util
             spec = importlib.util.find_spec("gguf")
             if spec is not None:
                 _patch_gguf_reader_base()
                 r = _metadata_gguf_reader(self.mmproj_file)
-                hv = r.fields.get("clip.has_vision_encoder")
-                if hv:
-                    val = int.from_bytes(hv.parts[-1].tobytes(), "little")
-                    companion_name = r.fields.get("general.basename") or r.fields.get("general.name")
-                    compatible = False
-                    if self.general_basename and companion_name:
-                        decoded = companion_name.parts[-1].tobytes().decode(
-                            "utf-8", errors="replace"
-                        ).strip("\x00")
-                        normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
-                        compatible = normalize(decoded) == normalize(self.general_basename)
-                    projection = r.fields.get("clip.vision.projection_dim")
-                    if projection:
-                        projection_dim = int.from_bytes(
-                            projection.parts[-1].tobytes(), "little"
-                        )
-                        compatible = compatible or projection_dim == self.embed
-                    self.mmproj_valid = val == 1 and compatible
+                self.mmproj_tensor_count = len(r.tensors)
+
+                def field_value(key):
+                    field = r.fields.get(key)
+                    if field is None:
+                        return None
+                    try:
+                        return field.contents()
+                    except Exception:
+                        raw = field.parts[-1].tobytes()
+                        try:
+                            return raw.decode("utf-8", errors="strict").strip("\x00")
+                        except (UnicodeDecodeError, AttributeError):
+                            return int.from_bytes(raw, "little")
+
+                def field_bool(key):
+                    value = field_value(key)
+                    try:
+                        return bool(int(value))
+                    except (TypeError, ValueError):
+                        return str(value).strip().lower() in {"true", "yes", "on"}
+
+                self.mmproj_has_vision = field_bool("clip.has_vision_encoder")
+                self.mmproj_has_audio = field_bool("clip.has_audio_encoder")
+                self.mmproj_has_gen_audio = field_bool(
+                    "clip.has_gen_audio_encoder"
+                )
+
+                companion_name = (
+                    field_value("general.basename")
+                    or field_value("general.name")
+                )
+                compatible = False
+                if self.general_basename and companion_name:
+                    normalize = lambda value: re.sub(
+                        r"[^a-z0-9]", "", str(value).lower()
+                    )
+                    compatible = (
+                        normalize(companion_name)
+                        == normalize(self.general_basename)
+                    )
+                for key in (
+                    "clip.vision.projection_dim",
+                    "clip.audio.projection_dim",
+                    "clip.gen.audio.projection_dim",
+                ):
+                    try:
+                        compatible = compatible or int(field_value(key)) == self.embed
+                    except (TypeError, ValueError):
+                        continue
+                self.mmproj_valid = bool(
+                    compatible and (
+                        self.mmproj_has_vision
+                        or self.mmproj_has_audio
+                        or self.mmproj_has_gen_audio
+                    )
+                )
             else:
                 self.mmproj_valid = False
         except Exception:
@@ -1512,6 +1600,27 @@ class OptimalParams:
         self.fit_plan_source    = "none"
         self.autotune_hit       = None
 
+        # GGUF generation metadata is the universal baseline.  Family
+        # adapters below may still choose a task-specific official preset,
+        # but an unknown architecture must not silently inherit Qwen values.
+        embedded_sampling = []
+        if meta.sampling_temp is not None:
+            self.temp = float(meta.sampling_temp)
+            embedded_sampling.append(f"temp {self.temp}")
+        if meta.sampling_top_k is not None:
+            self.top_k = int(meta.sampling_top_k)
+            embedded_sampling.append(f"top-k {self.top_k}")
+        if meta.sampling_top_p is not None:
+            self.top_p = float(meta.sampling_top_p)
+            embedded_sampling.append(f"top-p {self.top_p}")
+        if meta.sampling_min_p is not None:
+            self.min_p = float(meta.sampling_min_p)
+            embedded_sampling.append(f"min-p {self.min_p}")
+        if embedded_sampling:
+            self.sampling_reason = (
+                "metadados GGUF: " + ", ".join(embedded_sampling)
+            )
+
         # Use task-aware model-card sampling for Qwen variants instead of the
         # generic profile. Qwen3.6 remains thinking-capable by default.
         model_id = f"{getattr(meta, 'general_basename', '')} {getattr(meta, 'path', '')}".lower()
@@ -1558,6 +1667,40 @@ class OptimalParams:
             self.sampling_reason = (
                 "GLM-4.7-Flash oficial: temp 1.0, top-p 0.95; "
                 "top-k/min-p desativados"
+            )
+
+        # Nemotron-H Omni is a metadata-identifiable architecture, not a
+        # filename preset.  Its reasoning recipe deliberately does not use
+        # Qwen's top-k/min-p filters and its hybrid cache is cheap enough that
+        # the native window should be the fit target.
+        if meta.arch.lower() in {"nemotron_h", "nemotron_h_moe"}:
+            self.temp = (
+                float(meta.sampling_temp)
+                if meta.sampling_temp is not None else 0.6
+            )
+            self.top_k = (
+                int(meta.sampling_top_k)
+                if meta.sampling_top_k is not None else 0
+            )
+            self.top_p = (
+                float(meta.sampling_top_p)
+                if meta.sampling_top_p is not None else 0.95
+            )
+            self.min_p = (
+                float(meta.sampling_min_p)
+                if meta.sampling_min_p is not None else 0.0
+            )
+            self.repeat_penalty = 1.0
+            self.presence_penalty = 0.0
+            self.reasoning = "auto"
+            self.reasoning_budget = 16384
+            self.chat_template_kwargs = json.dumps(
+                {"enable_thinking": True}, separators=(",", ":")
+            )
+            self.fit_ctx = max(int(meta.ctx_max), 1)
+            self.sampling_reason = (
+                "Nemotron-H reasoning/GGUF: temp 0.6, top-p 0.95, "
+                "top-k/min-p desativados, budget 16384"
             )
 
         # Laguna XS 2.1 is not a Qwen profile.  Prefer the sampling values
@@ -1866,17 +2009,32 @@ class OptimalParams:
             target_ctx, self.cache_k, self.cache_v, self.batch, self.ubatch,
             self.parallel, self.fit_target, self.fit_ctx, self.swa_full,
             self.spec_type,
+            # Placement is a function of available hardware, not just GGUF
+            # and cache types. Never reuse a fit after another workload has
+            # consumed the memory that justified it.
+            # Use the already detected snapshot; hw.identity() also probes
+            # the CUDA toolkit and would spawn commands on every cache hit.
+            self.hw.cpu_model, self.hw.cpu_cores, self.hw.cpu_threads,
+            self.hw.numa_nodes, self.hw.ram_total_gb,
+            self.hw.gpu_model, self.hw.gpu_vram_mb,
+            self.hw.gpu_driver, self.hw.gpu_cuda,
+            self.hw.gpu_vram_free_mb, self.hw.ram_avail_mb,
+            tuple(os.environ.get(name, "") for name in (
+                "CUDA_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES",
+                "ROCR_VISIBLE_DEVICES", "GGML_VK_VISIBLE_DEVICES",
+            )),
         )
         with _FIT_PLAN_LOCK:
             cached = _FIT_PLAN_CACHE.get(key)
         if cached is not None:
             return cached
 
-        # Do not pass -c here. In llama.cpp, an explicit context disables
-        # automatic context reduction and forces the fitter to move more
-        # layers/tensors to system RAM. Leaving -c unset lets the fitter first
-        # reduce context to preserve GPU-resident weights. --fit-ctx is only a
-        # lower bound; it is not a request for the largest possible context.
+        # Context is a first-class model capability.  Ask the native fitter to
+        # preserve the requested (normally native) window and then maximize
+        # the tensors that remain on the accelerator.  The previous implicit
+        # fit did the inverse: it reduced a 262K hybrid model to 4K merely to
+        # retain one more expert block on CUDA.  This rule is architecture
+        # neutral; llama-fit-params still owns the actual placement decision.
         fit_flash = "off" if (
             _is_glm47_flash(self.meta)
             and self.cache_k in {"f16", "bf16", "fp16"}
@@ -1885,6 +2043,7 @@ class OptimalParams:
         cmd = [
             self.llama_fit_params,
             "-m", self.meta.path,
+            "-c", str(target_ctx),
             "-np", str(max(self.parallel, 1)),
             "-ctk", self.cache_k,
             "-ctv", self.cache_v,
@@ -1893,7 +2052,7 @@ class OptimalParams:
             "-fa", fit_flash,
             "--fit", "on",
             "--fit-target", str(max(self.fit_target, 0)),
-            "--fit-ctx", str(max(self.fit_ctx, 1)),
+            "--fit-ctx", str(target_ctx),
         ]
         if self.swa_full == "y":
             cmd.append("--swa-full")
@@ -1905,6 +2064,8 @@ class OptimalParams:
         except (OSError, subprocess.TimeoutExpired):
             return None
 
+        if result.returncode != 0:
+            return None
         plan_line = next(
             (line.strip() for line in result.stdout.splitlines()
              if line.strip().startswith("-c ")),
@@ -1928,6 +2089,8 @@ class OptimalParams:
         except (TypeError, ValueError, IndexError):
             return None
 
+        if planned_ctx <= 0 or planned_ngl < 0:
+            return None
         plan = {
             "ctx": min(max(planned_ctx, 1), self.meta.ctx_max),
             "ngl": planned_ngl,
@@ -3165,16 +3328,30 @@ class OptimalParams:
 
     def _mmproj_offload(self) -> None:
         if self.vision_enabled and self.meta.mmproj_file and self.meta.mmproj_valid and self.hw.gpu_detected:
-            # Qwen35 hybrid models are sensitive to late CUDA allocations on a
-            # 12 GB card. The projector is loaded after the language model;
-            # keeping it on CPU leaves VRAM for the model workspace and KV
-            # growth. This also preserves the user's established vision
-            # profile (language model on CUDA, projector on CPU).
-            if (self.meta.arch.lower() in {"qwen35", "qwen35moe"} or self.meta.arch.lower() == "gemma4") and self.hw.gpu_vram_mb < 16384:
+            # The projector is allocated after the language model.  Decide by
+            # measured resources, not by a list of model names: whenever the
+            # model alone is larger than the usable device, native Fit will
+            # consume nearly all VRAM and the MMProj must remain on CPU.
+            usable_vram_mb = max(
+                self.hw.gpu_vram_free_mb
+                - self.fit_target
+                - self.runtime_overhead_mb,
+                0,
+            )
+            model_requires_hybrid_placement = (
+                self.meta.size_mb > usable_vram_mb
+            )
+            projector_would_exceed_device = (
+                self.meta.size_mb + self.meta.mmproj_size_mb
+                > usable_vram_mb
+            )
+            if model_requires_hybrid_placement or projector_would_exceed_device:
                 self.mmproj_offload = "n"
                 self.mmproj_offload_reason = (
-                    "desabilitado — modelo multimodal grande em GPU abaixo de 16 GB; "
-                    "mmproj fixado na CPU para evitar pressão/OOM na VRAM"
+                    f"desabilitado — modelo {self.meta.size_mb} MB + MMProj "
+                    f"{self.meta.mmproj_size_mb} MB excedem os "
+                    f"{usable_vram_mb} MB CUDA utilizáveis; MMProj na CPU "
+                    "preserva pesos, KV e workspace na GPU"
                 )
                 return
             estimated_mb = None
@@ -3266,13 +3443,33 @@ class OptimalParams:
             self.swa_reason = "desabilitado — modelo sem SWA"
 
     def _omni(self) -> None:
+        has_vision = bool(self.meta.mmproj_has_vision)
+        has_audio_input = bool(self.meta.mmproj_has_audio)
+        has_generated_audio = bool(self.meta.mmproj_has_gen_audio)
+        # Backward compatibility for synthetic metadata and old cached
+        # profiles created before modality-aware MMProj inspection.
+        if self.meta.mmproj_valid and not (
+            has_vision or has_audio_input or has_generated_audio
+        ):
+            has_vision = True
+        modality_names = []
+        if has_vision:
+            modality_names.extend(("imagem", "vídeo"))
+        if has_audio_input:
+            modality_names.append("áudio de entrada")
+        if has_generated_audio:
+            modality_names.append("áudio de saída")
+        modality_text = ", ".join(modality_names) or "multimodal"
         if self.vision_enabled and self.meta.mmproj_file and self.meta.mmproj_valid:
             self.omni = "y"
-            self.omni_reason = f"visão ativa: {os.path.basename(self.meta.mmproj_file)}"
+            self.omni_reason = (
+                f"{modality_text} ativos: "
+                f"{os.path.basename(self.meta.mmproj_file)}"
+            )
         elif self.meta.mmproj_file and self.meta.mmproj_valid:
             self.omni = "n"
             self.omni_reason = (
-                f"visão disponível, desativada para maximizar contexto: "
+                f"{modality_text} disponíveis, desativados para maximizar contexto: "
                 f"{os.path.basename(self.meta.mmproj_file)}"
             )
         elif self.meta.mmproj_file:
@@ -3281,6 +3478,8 @@ class OptimalParams:
         else:
             self.omni = "n"
             self.omni_reason = "nenhum projetor detectado"
+        # ``audio`` controls a separate output vocoder. Audio *input* is part
+        # of the MMProj and becomes active together with ``omni``.
         self.audio = "y" if self.meta.vocoder_file else "n"
 
     def _spec(self) -> None:

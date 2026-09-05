@@ -525,6 +525,30 @@ class LauncherRuntimeTests(unittest.TestCase):
                 fit_params, str((portable_dir / "llama-fit-params").resolve())
             )
 
+    def test_resolve_source_root_skips_build_with_broken_dynamic_loader(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "llama.cpp"
+            broken_dir = source / "build-crono" / "bin"
+            healthy_dir = source / "build-rtx3060" / "bin"
+            broken_dir.mkdir(parents=True)
+            healthy_dir.mkdir(parents=True)
+            for name in ("llama-server", "llama-fit-params"):
+                broken = broken_dir / name
+                broken.write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+                os.chmod(broken, 0o755)
+                healthy = healthy_dir / name
+                healthy.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                os.chmod(healthy, 0o755)
+
+            _display, server, fit_params = LauncherWebState._resolve_llama_cpp(
+                str(source), require=True,
+            )
+
+            self.assertEqual(server, str((healthy_dir / "llama-server").resolve()))
+            self.assertEqual(
+                fit_params, str((healthy_dir / "llama-fit-params").resolve())
+            )
+
     def test_gguf_py_follows_selected_source_project_or_binary(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(
             os.environ, {"CRONO_GGUF_PY_DIR": ""}
@@ -790,6 +814,8 @@ class LauncherRuntimeTests(unittest.TestCase):
             metadata_file = root / "agent-local.json"
             state = LauncherWebState.__new__(LauncherWebState)
             state.meta = ModelMetadata()
+            state.meta.meta_ok = True
+            state.meta.ctx_max = 262144
             state.runtime_effective = {
                 "props": {
                     "model_alias": "runtime-vision-model",
@@ -807,7 +833,6 @@ class LauncherRuntimeTests(unittest.TestCase):
                         },
                     },
                     "chat_template": "template",
-                    "chat_template_tool_use": "tool-template",
                     "chat_template_caps": {
                         "supports_tools": True,
                         "supports_tool_calls": True,
@@ -849,7 +874,8 @@ class LauncherRuntimeTests(unittest.TestCase):
             with mock.patch("web.services.AGENT_COMPAT_DIR", root), mock.patch(
                 "web.services.AGENT_ENV_FILE", env_file
             ), mock.patch("web.services.AGENT_METADATA_FILE", metadata_file):
-                info = state._write_agent_compatibility(final, 8080, 131072)
+                # Stale requested context must not override /props.
+                info = state._write_agent_compatibility(final, 8080, 262144)
 
             metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
             catalog = json.loads(
@@ -877,6 +903,12 @@ class LauncherRuntimeTests(unittest.TestCase):
                 model["supported_reasoning_levels"][-1]["effort"], "max"
             )
             self.assertEqual(metadata["runtime"]["model_ftype"], "Q6_K")
+            self.assertTrue(
+                metadata["runtime"]["chat_template_tool_use_available"]
+            )
+            self.assertEqual(metadata["native_context_window"], 262144)
+            self.assertEqual(model["native_context_window"], 262144)
+            self.assertEqual(info["capabilities"]["runtime"]["context_window"], 131072)
             self.assertEqual(metadata["endpoints"]["responses"], "http://127.0.0.1:8080/v1/responses")
             self.assertEqual(model["max_output_tokens"], 131072)
             self.assertEqual(model["truncation_policy"]["limit"], 131072)
@@ -930,7 +962,10 @@ class LauncherRuntimeTests(unittest.TestCase):
             ), mock.patch("web.services.AGENT_METADATA_FILE", root / "agent.json"):
                 info = state._write_agent_compatibility(final, 8080, 8192)
             self.assertTrue(info["reasoning_enabled"])
-            self.assertFalse(info["supports_reasoning_effort"])
+            self.assertTrue(info["supports_reasoning_effort"])
+            self.assertTrue(
+                info["server_capabilities"]["supports_reasoning_budget"]
+            )
             self.assertEqual(
                 info["capabilities"]["interleaved"],
                 {"field": "reasoning_content"},
@@ -1359,6 +1394,96 @@ class LauncherRuntimeTests(unittest.TestCase):
         self.assertEqual(optimal.min_p, 0.0)
         self.assertEqual(optimal.presence_penalty, 0.0)
         self.assertIn("Qwen3.6", optimal.sampling_reason)
+
+    def test_nemotron_h_uses_native_context_and_reasoning_sampling(self):
+        hardware, _ = self._qwen35_fixture()
+        metadata = ModelMetadata()
+        metadata.arch = "NEMOTRON_H_MOE"
+        metadata.ctx_max = 262144
+        metadata.layers = 52
+        metadata.sampling_temp = 0.6
+        metadata.sampling_top_p = 0.95
+
+        optimal = OptimalParams(hardware, metadata)
+
+        self.assertEqual(optimal.fit_ctx, 262144)
+        self.assertEqual(optimal.temp, 0.6)
+        self.assertEqual(optimal.top_p, 0.95)
+        self.assertEqual(optimal.top_k, 0)
+        self.assertEqual(optimal.min_p, 0.0)
+        self.assertEqual(optimal.reasoning_budget, 16384)
+        self.assertEqual(
+            json.loads(optimal.chat_template_kwargs),
+            {"enable_thinking": True},
+        )
+
+    def test_generic_fit_preserves_requested_native_context(self):
+        hardware, _ = self._qwen35_fixture()
+        metadata = ModelMetadata()
+        metadata.arch = "UNKNOWN_MOE"
+        metadata.ctx_max = 262144
+        metadata.layers = 52
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            metadata.path = str(root / "model.gguf")
+            fit_binary = root / "llama-fit-params"
+            Path(metadata.path).write_bytes(b"gguf")
+            fit_binary.write_bytes(b"fit")
+            optimal = OptimalParams(
+                hardware, metadata, llama_fit_params=str(fit_binary)
+            )
+            completed = mock.Mock(
+                stdout="-c 262144 -ngl 53 -ot 'blk\\.18\\.ffn_.*=CPU'\n",
+                returncode=0,
+            )
+            with mock.patch(
+                "launch_model_core.subprocess.run", return_value=completed
+            ) as run:
+                plan = optimal._fit_plan()
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("-c") + 1], "262144")
+        self.assertEqual(
+            command[command.index("--fit-ctx") + 1], "262144"
+        )
+        self.assertEqual(plan["ctx"], 262144)
+        self.assertEqual(plan["ngl"], 53)
+
+    def test_mmproj_validation_detects_vision_and_audio_independently(self):
+        class Field:
+            def __init__(self, value):
+                self.value = value
+
+            def contents(self):
+                return self.value
+
+        reader = mock.Mock()
+        reader.fields = {
+            "general.basename": Field("Omni Model"),
+            "clip.has_vision_encoder": Field(True),
+            "clip.has_audio_encoder": Field(True),
+            "clip.has_gen_audio_encoder": Field(False),
+            "clip.vision.projection_dim": Field(2688),
+            "clip.audio.projection_dim": Field(2688),
+        }
+        reader.tensors = [mock.Mock(), mock.Mock(), mock.Mock()]
+        metadata = ModelMetadata()
+        metadata.general_basename = "Omni Model"
+        metadata.embed = 2688
+        metadata.mmproj_file = "/models/mmproj.gguf"
+
+        with mock.patch(
+            "importlib.util.find_spec", return_value=object()
+        ), mock.patch(
+            "launch_model_core._metadata_gguf_reader", return_value=reader
+        ):
+            metadata._validate_mmproj()
+
+        self.assertTrue(metadata.mmproj_valid)
+        self.assertTrue(metadata.mmproj_has_vision)
+        self.assertTrue(metadata.mmproj_has_audio)
+        self.assertFalse(metadata.mmproj_has_gen_audio)
+        self.assertEqual(metadata.mmproj_tensor_count, 3)
 
     def test_qwen36_command_overrides_llama_server_min_p_default(self):
         hardware, metadata = self._qwen35_fixture()

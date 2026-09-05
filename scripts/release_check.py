@@ -13,7 +13,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 PATCH = ROOT / "patches" / "llama.cpp" / "crono-matrix.patch"
-PATCH_SHA256 = "4193d2f585f5c007742bbd799e39a10e47a57042123c1ada3e625f745b64ee94"
+PATCH_SHA256 = "3a71b9d6d957377556f0c24d29ee46aa561ff54d022fb0d90fa91815a731a22e"
 MODEL_SUFFIXES = {".gguf", ".safetensors", ".ckpt", ".pt", ".pth"}
 FORBIDDEN_PARTS = {
     "mcp-crono-matrix", "node_modules", ".venv", "__pycache__",
@@ -23,12 +23,13 @@ PERSONAL_PATTERNS = (
     re.compile(r"/home/(?!user(?:/|\b)|usuario(?:/|\b)|<[^>]+>/)[A-Za-z0-9._-]+/"),
     re.compile(r"BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
-    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
 )
 TEXT_SUFFIXES = {
     ".py", ".js", ".mjs", ".ts", ".svelte", ".html", ".css", ".md",
     ".txt", ".toml", ".yaml", ".yml", ".json", ".sh", ".c", ".h",
-    ".cpp", ".hpp", ".env", "",
+    ".cpp", ".hpp", ".env", ".patch", "",
 }
 
 
